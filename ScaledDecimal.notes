@@ -1,0 +1,23 @@
+Declare
+    prop_<whatever> <args> = <formula>
+or
+    prop_<whatever> <args> = <condition> ==> <formula>
+
+A <formula> may include
+
+    forAll <generator> $ \<arg> -> <formula>
+
+sdGen :: Gen ScaledDecimal
+    do i <- choose (-49,49)
+       s <- choose (0, 4)
+       return as_scaled_decimal (i :: Int) (s :: Int)
+
+import Test.QuickCheck
+
+main =
+    do quickCheck prop_x
+       quickCheck prop_y
+       ...
+       return ()
+
+

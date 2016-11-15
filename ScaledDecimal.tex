@@ -1,0 +1,1018 @@
+%   File   : ScaledDecimal.lhs
+%   Author : Richard A. O'Keefe
+%   Purpose: Specify ANSI-Smalltalk-style ScaledDecimal arithmetic
+
+\documentclass[prodmode,acmtoplas]{acmsmall}
+\usepackage{url}
+%\acmVolume{V}
+%\acmNumber{N}
+%\acmArticle{A}
+%\acmYear{YYYY}
+%\acmMonth{O}
+\markboth{R. A. O'Keefe}{Specifying Exact Scaled Decimal Arithmetic}
+\title{Specifying Exact Scaled Decimal Arithmetic}
+\author{RICHARD A. O'KEEFE \affil{University of Otago}}
+\begin{abstract}
+% No matter how many times I run pdflatex,
+% citations in the abstract are never found.
+% That's a difference from the {article} class.
+Several programming standards include some form of fixed point
+arithmetic, notably %SQL \cite{SQL},
+SQL, but often leave it vague.
+The ANSI Smalltalk standard %\cite{ANST}
+is used as
+an example.  It includes a ScaledDecimal class for
+decimal fixed point arithmetic, but the specification is so
+vague that implementations vary greatly.  The Language Independent
+Arithmetic standard %\cite{LIA1}
+has nothing to say about this data type.
+To have a high degree of confidence in a specification, it should
+be machine checked.  This article uses Haskell %\cite{HASK}
+to express a
+tested specification which treats ScaledDecimal numbers as exact.
+\end{abstract}
+\category{D2.1}{SOFTWARE ENGINEERING}%
+    {Requirements/Specifications}[Languages]
+\category{D2.5}{SOFTWARE ENGINEERING}%
+    {Testing and Debugging}[Testing tools]
+\category{D3.0}{PROGRAMMING LANGUAGES}%
+    {General}[Standards]
+\category{D3.3}{PROGRAMMING LANGUAGES}%
+    {Language constructs and features}[Data types and structures]
+\terms{Languages, Standardization}
+\keywords{Fixed-point}
+\acmformat{O'Keefe, R. A. 2012 Specifying Exact Scaled Decimal Arithmetic}
+\begin{document}
+\begin{bottomstuff}
+Author's addresses: R.~A.~O'Keefe, Computer Science Department,
+University of Otago.
+\end{bottomstuff}
+\def\hask#1{\textsf{#1}}
+\bibliographystyle{acmsmall}
+\maketitle
+
+\section{Introduction}
+
+The ANSI Smalltalk standard \cite{ANST} requires Smalltalk
+systems to offer several kinds of numbers:  exact unbounded integers,
+exact unbounded fractions (rational numbers other than integers),
+up to three different sizes of floating point numbers, and also
+scaled decimal numbers.
+
+Unfortunately, it fails to specify the semantics of scaled decimal
+arithmetic precisely.  For example, section 5.6.2.2
+says of addition only that ``If the [result is a scaled decimal]
+then the scale of the result is at least the scale of the [left
+operand]''.  There is no requirement that $x+y=y+x$ for scaled decimals.
+
+Existing Smalltalk implementations
+\begin{itemize}
+\item omit this type entirely, or
+\item implement it using 31 digit IBM/360-style
+signed-packed-decimal format \cite[page 8-1]{Z360},
+rescaling to avoid overflow (so the decimal point is not as
+fixed as you might expect; this is not something the hardware
+instructions do), or
+\item treat it as exact rational numbers with any denominator
+whatever, with the scale factor controlling only how a number
+is printed, not how it behaves in arithmetic, or
+\item treat it as exact rational numbers with a power of ten
+denominator.
+\end{itemize}
+
+Some programming languages, notably Ada \cite{ADA2,ADAW}, have fixed point
+numeric types described as approximations with a stated absolute error
+bound.
+That is a perfectly reasonable form of arithmetic, and it is not clear
+that the ANSI Smalltalk standard was intended to rule it out.
+
+The ANSI Smalltalk standard repeatedly defers to the Language
+Independent Arithmetic \cite{LIA1} standard with the phrase ``as
+specified by \dots ISO/IEC 10967''.
+Unfortunately, LIA-1 \cite{LIA1} deals with integer and floating point
+arithmetic, LIA-2 \cite{LIA2} deals with elementary numeric functions
+like \verb|exp()|, and LIA-3 \cite{LIA3} deals with complex arithmetic,
+each part of LIA explicitly denying having anything to say about fixed
+point or rational arithmetic.
+
+The SQL 2003 standard \cite{SQL} describes NUMERIC$(p,s)$ and
+DECIMAL$(p,s)$ as ``exact''.  In these types, $p$ is the total number
+of digits and $s$ is the number of digits after the radix point.  The
+standard specifies the scale of the result of an addition, subtraction,
+or multiplication, but leaves the precision implementation-defined and
+does not say anything explicitly about the values.  It
+leaves everything about division implementation-defined.
+
+A specification could be
+\begin{itemize}
+\item natural language text,
+ as in the ANSI Smalltalk standard \cite{ANST};
+\item formal mathematics with English text, as in LIA-1 \cite{LIA1};
+\item a reference implementation in a conventional programming language; or
+\item an executable specification.
+\end{itemize}
+
+We need a high degree of confidence in at least the completeness and
+consistency of the specification.  It should not use any undefined
+operations.  It should at least type check.  It should be comparatively
+easy to test, to make sure that at least the most obvious errors are not
+present.  Above all, once we have our specification, we would like to be
+able to use it to generate test cases for a system that is meant to
+conform to the specification.
+
+All of these desiderata point to an executable specification in some
+high level or specification language.  The existence of the QuickCheck
+\cite{QC1,QC2} library \cite{QC4} for automatically testing properties of
+Haskell functions makes Haskell \cite{HASK} an excellent choice.
+
+This article was originally written as a Literate Haskell source file
+which can be processed by LaTeX for printing, or loaded directly by a
+Haskell system.  For publication the code was mechanically pretty-printed.
+The code that you see is the code that was checked.
+
+\section{The code}
+
+A program might need both binary and decimal scaled numbers, so
+we start with an auxiliary module that is about scaled numbers
+in general.  The scale of a scaled number can be recovered using
+the \hask{scale} function.  Since integers behave like scaled
+with a scale of zero, we may as well extend \hask{scale}
+to cover them.  We shall see later that defining a version of
+division that returns a scaled result is problematic,
+but since they are abstractly rational numbers, it should be easy
+to divide two scaled numbers and get an exact rational answer.
+This too we extend to integers.
+C programmers beware:  (\hask{\%}) is not a remainder operator,
+but a division operator that produces Rational results.
+
+Haskell has the usual four operations for converting a number to
+a whole multiple of 1.  Smalltalk has additional operations to
+convert to a whole multiple of some given $y$.  We can define
+these operations on any type that can be converted to a rational
+number; they don't have any requirement for scaled decimals as such.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{module} Scaled (\\
+\verb|    |\sffamily    Scaled(..),\\
+\verb|    |\sffamily    ceilingTo,\\
+\verb|    |\sffamily    floorTo,\\
+\verb|    |\sffamily    roundTo,\\
+\verb|    |\sffamily    truncateTo\\
+\sffamily ) \textbf{where}\\
+\sffamily \textbf{import} Ratio ((\%))\\
+\\
+\sffamily \textbf{class} Integral a $\Rightarrow$ Scaled a\\
+\verb|  |\sffamily  \textbf{where}\\
+\verb|    |\sffamily    scale $::$ a $\rightarrow$ Int\\
+\verb|    |\sffamily    scale \_ = 0\\
+\verb|    |\sffamily    ratio $::$ a $\rightarrow$ a $\rightarrow$ Rational\\
+\verb|    |\sffamily    ratio x y = fromIntegral x \% (fromIntegral y $::$ Integer)\\
+\\
+\sffamily \textbf{instance} Scaled Int\\
+\\
+\sffamily \textbf{instance} Scaled Integer\\
+\\
+\sffamily truncateTo, floorTo, ceilingTo, roundTo $::$ Real a $\Rightarrow$ a $\rightarrow$ a $\rightarrow$ a\\
+\sffamily helper $::$ Real a $\Rightarrow$ (Rational $\rightarrow$ Integer) $\rightarrow$ a $\rightarrow$ a $\rightarrow$ a\\
+\\
+\sffamily helper f x y = fromIntegral (f (toRational x / toRational y)) * y\\
+\sffamily truncateTo = helper truncate\\
+\sffamily floorTo    = helper floor\\
+\sffamily ceilingTo  = helper ceiling\\
+\sffamily roundTo    = helper round
+\end{tabbing}
+\end{quote}
+
+We want \hask{ScaledDecimal} to be an abstract data type, so we use a
+module and export the type and operations but not its constructor.
+Almost all the operations we need are defined in Haskell type-classes,
+so do not need to be exported explicitly.  A function for converting
+real numbers to scaled decimal with a given scale does not fit into any
+existing Haskell class, so is exported by itself, as is a generalised
+division function.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{module} ScaledDecimal (\\
+\verb|    |\sffamily    ScaledDecimal,\\
+\verb|    |\sffamily    divideWithScale,\\
+\verb|    |\sffamily    toScaledDecimal\\
+\sffamily ) \textbf{where}\\
+\sffamily \textbf{import} Scaled
+\end{tabbing}
+\end{quote}
+
+We can construct a scaled decimal number in two different ways
+other than arithmetic operations.
+Given a \hask{String} at run time, we can read a number from it.
+We need two functions from the \hask{Char} module for that.
+The Haskell language says that a numeric literal with a decimal
+point in the source code is processed as if first read as
+an arbitrarily precise rational number and then converted using
+the \hask{fromRational} function, so we need the numerator and
+denominator functions to unpack that rational number and the
+division operator that makes ratios from integers.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{import} Char (isSpace, isDigit)\\
+\sffamily \textbf{import} Ratio (numerator, denominator, (\%))
+\end{tabbing}
+\end{quote}
+
+We represent a scaled decimal number as a pair
+(\hask{SD}~$n$~$s$) standing for the exact rational number
+$n\times 10^{-s}$.  Haskell is a non-strict functional language,
+meaning that just because an expression has been evaluated to
+the point where we know it is (\hask{SD}~\_~\_) that doesn't
+necessarily mean the components are known.  We use strict data
+annotations to say that either nothing is known about a number yet
+or all of it is known.  There are only two places where this
+module takes advantage of Hasell's laziness, and they aren't needed
+to specify Smalltalk.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{data} ScaledDecimal = SD !Integer !Int
+\end{tabbing}
+\end{quote}
+
+The standard says
+\begin{quote}
+The maximum allowed precision for a scaled decimal numeric object is
+implementation defined and may be unbounded.  (3.4.6.1)
+
+The maximum precision must be at least 30.  (3.6)
+
+If the result [of an operation] is outside of the range of the common
+numeric representation, the effect of underflow or overflow is
+implementation defined.  (5.6.2.1 and elsewhere)
+
+The effect of underflow and overflow is implementation defined. (5.6.2.17)
+
+It is an error if the [source of a conversion] cannot be represented
+within the maximum precision of the [ScaledDecimal] implementation.
+(5.6.5.3)
+
+The representation must be able to accurately represent decimal
+fractions.  The standard recommends that the implementation of this
+protocol support unbounded precision, with no limit to the number of
+digits before and after the decimal point.  If a bounded implementation
+is provided, then any operation which exceeds the bounds has an
+implementation-specified result.  (5.6.6)
+\end{quote}
+
+It is not obvious why a language that is required to support integer
+arithmetic with no fixed bounds should allow arbitrary bounds to be
+imposed on scaled decimal arithmetic.  The answer appears to be
+VisualAge Smalltalk, which implements decimal numbers using 17 bytes;
+one byte for the scale and 16 to hold 31 decimal digits and a sign in
+IBM/360 signed packed decimal format \cite[chapter 8]{Z360}.
+In the case of precision or scale overflow, VisualAge Smalltalk shifts
+the decimal point to the right if possible.  Such a representation makes
+excellent sense for interfacing to an SQL implementation with a similar
+representation, but it does not make for arithmetic that is easy to
+reason about.
+
+In order to accommodate some such implementation-specific fudging,
+this specification uses a function
+\begin{quote}
+\begin{tabbing}
+\sffamily approx $::$ Integer $\rightarrow$ Int $\rightarrow$ ScaledDecimal\\
+\\
+\sffamily approx n s = SD n s 
+\end{tabbing}
+\end{quote}
+We use the constructor \hask{SD} where it is obvious that no overflow is
+possible, \hask{approx} otherwise.
+
+Many of the operations that work on two numbers need to have
+those numbers represented in the same scale.  The function
+\hask{common\_scale} does this.  It is not exported.  It works
+by multiplying the number with the smaller scale by a suitable
+power of 10.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily common\_scale $::$ ScaledDecimal $\rightarrow$ ScaledDecimal $\rightarrow$\\
+\verb|                |\sffamily                (Integer, Integer, Int)\\
+\\
+\sffamily common\_scale (SD nx sx) (SD ny sy)\\
+\verb|  |\sffamily  $|$ sx $>$ sy = (nx, ny * 10$\uparrow$(sx-sy), sx)\\
+\verb|  |\sffamily  $|$ sx $<$ sy = (nx * 10$\uparrow$(sy-sx), ny, sy)\\
+\verb|  |\sffamily  $|$ True    = (nx,              ny, sx)
+\end{tabbing}
+\end{quote}
+
+We can extract the scale of a scaled decimal and compute the
+exact ratio of two scaled decimals.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{instance} Scaled ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  scale (SD \_ s) = s\\
+\verb|  |\sffamily  ratio x y = ratio nx ny \textbf{where} (nx,ny,\_) = common\_scale x y
+\end{tabbing}
+\end{quote}
+
+This gives us a way to convert a \hask{ScaledDecimal} to
+\hask{Rational}:
+\hask{ratio}~$x$~1.  The Smalltalk standard requires a function
+that takes a number and a scale and returns a scaled decimal
+with that scale approximating the given number as well as possible.
+Basically, we are going to convert $x$ to \hask{round}($x\times 10^s$)
+and compensate by giving it $s$ as scale (implicitly dividing it by
+$10^s$ again).
+Plugging this into the Haskell numeric framework is a little tricky,
+because while \hask{round} is defined on rational numbers and floats,
+it is not defined on integers.  Fortunately, we are producing an
+executable specification, not a high performance library, so we can
+start by converting $x$ to a rational number.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily toScaledDecimal $::$ Real a $\Rightarrow$ a $\rightarrow$ Int $\rightarrow$ ScaledDecimal\\
+\\
+\sffamily toScaledDecimal x s =\\
+\verb|  |\sffamily  approx (round (toRational x * 10$\uparrow$s)) s
+\end{tabbing}
+\end{quote}
+
+If a type belongs to the Haskell type class called \hask{Eq},
+you can use equality (\verb|==|) and inequality (\verb|/=|)
+on that type.  If we define either function, the other is
+automatically defined.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{instance} Eq ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  x == y = nx == ny\\
+\verb|    |\sffamily    \textbf{where} (nx,ny,\_) = common\_scale x y
+\end{tabbing}
+\end{quote}
+
+The type class \hask{Ord} deals with the ordered comparison
+predicates ($<$), ($\ge$), ($<$), ($\le$),
+\hask{max}, \hask{min}, and the three-way comparison \hask{compare}.
+If you define three-way comparison, the other functions are automatically
+defined, as are things like sorting.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{instance} Ord ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  compare x y = compare nx ny\\
+\verb|    |\sffamily    \textbf{where} (nx,ny,\_) = common\_scale x y
+\end{tabbing}
+\end{quote}
+
+Now we can define arithmetic.  The arithmetic operations are
+spread across several classes, and the assignment of operations
+to classes is not always convenient.  Addition, and subtraction
+seem trivial, but express our intention that these numbers be
+regarded as \textit{exact}.  For approximate numbers, we would
+convert the operands to the \textit{smaller} scale, not the larger.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{instance} Num ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  negate (SD n s) = SD (negate n) s\\
+\verb|  |\sffamily  abs    (SD n s) = SD (abs n)    s\\
+\verb|  |\sffamily  signum (SD n \_) = SD (signum n) 0\\
+\verb|  |\sffamily  fromInteger i   = approx i 0\\
+\\
+\verb|  |\sffamily  x + y = approx (nx+ny) s \textbf{where} (nx,ny,s) = common\_scale x y\\
+\verb|  |\sffamily  x - y = approx (nx-ny) s \textbf{where} (nx,ny,s) = common\_scale x y\\
+\verb|  |\sffamily  (SD nx sx) * (SD ny sy) = approx (nx*ny) (sx+sy)
+\end{tabbing}
+\end{quote}
+
+Since we view scaled decimal numbers as exact rationals, we
+should be able to convert them to the Rational type.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{instance} Real ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  toRational (SD n s) = n \% 10$\uparrow$s
+\end{tabbing}
+\end{quote}
+
+Now we run into one of the glitches in the Haskell numeric
+classes.  We want to define quotient and remainder for our
+numbers, which means they have to belong to the \hask{Integral} class
+(glitch one), and that requires them to be in the \hask{Enum} class
+(glitch two), which not only provides enumeration over ranges
+of numbers, but also provides two-way conversion between these
+numbers and hardware integers (glitch three).
+It happens that we can define enumeration reasonably enough,
+so glitch two is not much of a problem.  Converting machine
+integers to scaled decimal is always possible, but the
+\hask{fromEnum} function is a problem.  We don't want
+it; it is there just to satisfy Haskell.
+The definition of the \hask{Enum} class for floating point types is
+somewhat contentious in the Haskell community.  The following
+definitions of \hask{fromEnum}| and \hask{toEnum} for
+\hask{ScaledDecimal} are consistent with those for \hask{Double}.
+
+Of the four enumeration functions, we only need the two finite
+ones for specifying Smalltalk, and could have managed without
+those.
+\begin{itemize}
+\item (enumFrom $x$) enumerates all the rational numbers with
+the same scale as $x$, starting from $x$.  This is an infinite
+list.  It is one of the two functions that depends on laziness.
+\item (enumFromThen $x$ $y$) reports $x$, $x+(y-x)$, $x+2(y-x)$,
+\dots   This is an infinite list.  It is the other function that
+depends on laziness.
+\item (enumFromTo $x$ $z$) enumerates all the rational numbers
+with the same scale as $x$, lying between $x$ and $z$ inclusive.
+\item (enumFromThenTo $x$ $y$ $z$) reports $x$, $x+(y-x)$,
+$x+2(y-x)$, \dots, up to and including $z$.  The first
+and second elements may have different scales; this is deliberate.
+\end{itemize}
+
+\begin{quote}
+\begin{tabbing}
+\sffamily round\_to\_integer (SD n s) =\\
+\verb|  |\sffamily  \textbf{if} s == 0 \textbf{then} n \textbf{else}\\
+\verb|  |\sffamily  (\textbf{if} n $\ge$ 0 \textbf{then} n + 5*10$\uparrow$(s-1) \textbf{else} n - 5*10$\uparrow$(s-1)) `quot` 10$\uparrow$s)\\
+\\
+\sffamily \textbf{instance} Enum ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  succ (SD n s) = approx (succ n) s\\
+\verb|  |\sffamily  pred (SD n s) = approx (pred n) s\\
+\verb|  |\sffamily  toEnum i      = approx (fromIntegral i) 0\\
+\verb|  |\sffamily  fromEnum x    = fromIntegral (round\_to\_integer x) \\
+\\
+\verb|  |\sffamily  enumFrom       x     = x : enumFrom (succ x)\\
+\verb|  |\sffamily  enumFromThen   x y   = loop x (y-x)\\
+\verb|                         |\sffamily                         \textbf{where} loop x d = x : loop (x+d) d\\
+\verb|  |\sffamily  enumFromTo     x   z = \textbf{if} x $>$ z \textbf{then} [] \textbf{else} x : enumFromTo (succ x) z\\
+\verb|  |\sffamily  enumFromThenTo x y z = loop x (y-x)\\
+\verb|                         |\sffamily                         \textbf{where} loop x d = \textbf{if} x $>$ z \textbf{then} []\\
+\verb|                                          |\sffamily                                          \textbf{else} x : loop (x+d) d
+\end{tabbing}
+\end{quote}
+
+What we really want is quotient and remainder operations.
+The traditional quotient operator truncates towards zero; this was
+used in Fortran and Algol 60, and is still used in C.  That
+definition has been criticised for a long time, with truncation
+towards negative infinity (floor division) preferred.  LIA-1
+offers both definitions.  So does Smalltalk, and so does Haskell.
+The \hask{quotRem} function provides truncating quotient and remainder.
+Defining it gives us \hask{quot} and \hask{rem} as well.
+The \hask{divMod} function provides flooring quotient and remainder.
+Defining it gives us \hask{div} and \hask{mod} as well.
+
+The Haskell library designers took the view that these operations
+only made sense for integral numbers.  Not so.  They make perfect
+sense for any rational numbers.  The Haskell community have long
+expressed dissatisfaction with the Haskell 98 numeric type classes.
+There are several proposals \cite{MATH} for revisions.  One proposal that
+is still being maintained is called the Numeric Prelude \cite{NPHW} and
+a packaged form \cite{NPHP} can easily be installed.  It even has support
+for fixed-point arithmetic, which it treats as approximate, but it does
+not provide a type or the usual operators.
+
+The definition of \hask{toInteger}
+is not just a type conversion; it is rounding.  The reporting of
+division by zero is delegated to the integer division functions.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{instance} Integral ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  toInteger x = round\_to\_integer x\\
+\verb|  |\sffamily  quotRem x y = (SD q 0, SD r s)\\
+\verb|                |\sffamily                \textbf{where} (nx, ny, s) = common\_scale x y\\
+\verb|                      |\sffamily                      (q, r)      = quotRem nx ny\\
+\verb|  |\sffamily  divMod x y  = (SD q 0, SD r s)\\
+\verb|                |\sffamily                \textbf{where} (nx, ny, s) = common\_scale x y\\
+\verb|                      |\sffamily                      (q, r)      = divMod nx ny
+\end{tabbing}
+\end{quote}
+
+You would expect that the step from quotient and remainder
+to conversion to integer would be a small one.  After all,
+\begin{quote}
+\begin{tabbing}
+\sffamily floor x = q \textbf{where} (q,r) = x `divMod` 1
+\end{tabbing}
+\end{quote}
+You would be wrong.  In order to define these Haskell functions
+on scaled decimal integers, these numbers have to count as
+Fractional, which means supporting division that returns a number
+of the same kind as the operands.
+
+Now we run into a big difficulty.  If $x=m\times 10^{-s}$ and
+$y=n\times 10^{-t}$, it does not follow that the ratio $x/y$
+has this form.  Consider 0.3/0.7.
+
+Possible responses to this problem are
+\begin{itemize}
+\item do not define this operation.
+Since the Smalltalk standard requires it, we may not take this option.
+\item observe that the answer \textit{is} always a rational number,
+so have the quotient of any mix of integers, rationals, and
+scaled decimals produce a rational number answer.  Since the other
+operations on scaled decimals are exact, it would be pleasant and
+consistent for this one to be exact also.  The Haskell type system
+does not permit that: x/y must have the same type as its operands.
+That need not be a problem because we could define Smalltalk's
+(/) in terms of some other Haskell function like our \hask{ratio}.
+However, the Smalltalk standard does not allow it.
+\item define it to return a scaled decimal approximation to the
+exact rational result.
+\end{itemize}
+
+The Smalltalk standard says only that
+``the scale of the result is at least the scale of the receiver'',
+where the receiver in $x/y$ is $x$.
+It is not enough to make the scale of the result be the greater
+of scale~$x$ and scale~$y$; that would give a very poor result
+for 1.0/3.0.
+PL/I actually has a good solution \cite[page 429]{PLI}, which is
+that DIVIDE($x$,$y$,$p$,$s$) lets you specify exactly the
+scaling factor $s$ that you want.  (The PL/I rules for (/)
+are confusing: more fractional digits in $y$ means fewer
+fractional digits in $x$/$y$ \cite[page 64]{PLI}.)
+Ada \cite[section 4.5.5]{ADA2,ADAW} has a
+similar solution: $x$/$y$ returns a result of a special type
+which must be explicitly converted to the scale you want.
+To model that, we need \hask{divideWithScale}.
+
+If someone wants to use (/), we have to make an essentially arbitrary
+choice about the minimum scale of the result.  Here
+\hask{defaultDivisionScale} is an implementation-defined parameter
+set to 18 as an example.
+
+The \hask{fromRational} function is used, amongst other things,
+to allow overloaded floating point literals.  Haskell defines the
+value of a literal with a decimal point to be the result of applying
+\hask{fromRational} to an exact rational version of the literal.
+The function here is not total: it works only when the conversion can
+be done exactly.  It is enough to make literals like 1.5 work.
+
+
+\begin{quote}
+\begin{tabbing}
+\sffamily divideWithScale x y s = toScaledDecimal (ratio x y) s\\
+\\
+\sffamily defaultDivisionScale = 18\\
+\\
+\sffamily \textbf{instance} Fractional ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  x / y = divideWithScale x y\\
+\verb|            |\sffamily            (scale x `max` scale y `max` defaultDivisionScale)\\
+\\
+\verb|  |\sffamily  recip y = 1 / y\\
+\\
+\verb|  |\sffamily  fromRational x = find\_scale (numerator x) (denominator x) 0\\
+\verb|    |\sffamily    \textbf{where} find\_scale n 1 s = approx n s\\
+\verb|          |\sffamily          find\_scale n d s =\\
+\verb|              |\sffamily              \textbf{if} d`mod`10 == 0 \textbf{then} find\_scale n     (d`div`10) (s+1) \textbf{else}\\
+\verb|              |\sffamily              \textbf{if} d`mod` 2 == 0 \textbf{then} find\_scale (n*5) (d`div` 2) (s+1) \textbf{else}\\
+\verb|              |\sffamily              \textbf{if} d`mod` 5 == 0 \textbf{then} find\_scale (n*2) (d`div` 5) (s+1) \textbf{else}\\
+\verb|              |\sffamily              error \verb@"ScaledDecimal.fromRational: not a decimal number"@
+\end{tabbing}
+\end{quote}
+
+We complete the arithmetic operations with floor and friends.
+The calls to \hask{fromIntegral} are required to allow the caller
+to determine the integral result type.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{instance} RealFrac ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  properFraction (SD n s) = (fromIntegral q, SD r s)\\
+\verb|                            |\sffamily                            \textbf{where} (q,r) = quotRem n (10$\uparrow$s)\\
+\verb|  |\sffamily  truncate (SD n s) = fromIntegral (n `quot` 10$\uparrow$s)\\
+\verb|  |\sffamily  floor    (SD n s) = fromIntegral (n `div`  10$\uparrow$s)\\
+\verb|  |\sffamily  ceiling  (SD n s) = fromIntegral (negate (negate n `div` 10$\uparrow$s))\\
+\verb|  |\sffamily  round x = fromIntegral (round\_to\_integer x)
+\end{tabbing}
+\end{quote}
+
+All that remains is conversion between internal representations
+and textual representations.  The Smalltalk standard defines
+output of scaled decimals, weakly, and scaled decimal literals
+in source code, but offers nothing that can convert from text
+to numeric form at run time.  Actual Smalltalk systems do have
+a way to do input conversions, but it was too powerful (and so
+vulnerable) to be included in the standard.  The conversions here
+are not exactly what Smalltalk wants, not that existing Smalltalks
+agree perfectly, but are building blocks from which suitable
+definitions can be made.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{instance} Show ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  showsPrec p (SD n s) suffix\\
+\verb|    |\sffamily    $|$ n $<$ 0 \&\& p $>$ 6 = \verb@"(-"@ $+\!\!+$ showAbs (abs n) s (\verb@")"@ $+\!\!+$ suffix)\\
+\verb|    |\sffamily    $|$ n $<$ 0          =  \verb@"-"@ $+\!\!+$ showAbs (abs n) s suffix\\
+\verb|    |\sffamily    $|$ True           =         showAbs      n  s suffix\\
+\verb|    |\sffamily    \textbf{where} showAbs n s suffix\\
+\verb|            |\sffamily            $|$ s $\le$ 0 = shows n suffix\\
+\verb|            |\sffamily            $|$ True = take (n1-s) d1 $+\!\!+$ \verb@"."@ $+\!\!+$ drop (n1-s) d1 $+\!\!+$ suffix\\
+\verb|            |\sffamily            \textbf{where} d0  = show n\\
+\verb|                  |\sffamily                  n0 = length d0\\
+\verb|                  |\sffamily                  d1 = replicate (s+1-n0) \verb@'0'@ $+\!\!+$ d0\\
+\verb|                  |\sffamily                  n1 = length d1
+\end{tabbing}
+\end{quote}
+
+Reading decimal numbers as exact decimal numbers is naturally not
+difficult.  For other internal bases some hint from the context about
+the precision require would be helpful.  The answer is that for other
+bases, a language standard should use
+\begin{quote}
+\sffamily toScaled\textit{Whatever} (read \textit{str} :: Rational) %
+\textit{scale}
+\end{quote}
+rather than relying on \hask{read} for \hask{Scaled\textit{Whatever}}.
+
+\begin{quote}
+\begin{tabbing}
+\sffamily \textbf{instance} Read ScaledDecimal \textbf{where}\\
+\verb|  |\sffamily  readsPrec \_ cs = parse cs\\
+\verb|    |\sffamily    \textbf{where} parse ( c:cs) $|$ isSpace c = parse cs\\
+\verb|          |\sffamily          parse (\verb@'+'@:cs) = before cs 0 False\\
+\verb|          |\sffamily          parse (\verb@'-'@:cs) = before cs 0 True\\
+\verb|          |\sffamily          parse      cs  = before cs 0 False\\
+\\
+\verb|          |\sffamily          before ( c :cs) n neg $|$ isDigit c =\\
+\verb|            |\sffamily            before cs (n*10 + val c) neg\\
+\verb|          |\sffamily          before (\verb@'.'@:cs) n neg =\\
+\verb|            |\sffamily            after cs n neg 0\\
+\verb|          |\sffamily          before      cs  n neg =\\
+{}\verb|            |\sffamily            [(approx (\textbf{if} neg \textbf{then} negate n \textbf{else} n) 0, cs)]\\
+\\
+\verb|          |\sffamily          after (c:cs) n neg s $|$ isDigit c =\\
+\verb|            |\sffamily            after cs (n*10 + val c) neg (s+1)\\
+\verb|          |\sffamily          after cs     n neg s =\\
+{}\verb|            |\sffamily            [(approx (\textbf{if} neg \textbf{then} negate n \textbf{else} n) s, cs)]\\
+\\
+\verb|          |\sffamily          val c = fromIntegral (fromEnum c - fromEnum \verb@'0'@)
+\end{tabbing}
+\end{quote}
+
+Smalltalk defines \verb|sqrt| for all numbers.  The usual definition
+applies to floats; integers return the floor of the square root as an
+integer; but for rational numbers and scaled decimals the standard
+defers to ISO 10967, which has explicitly nothing to say about rational
+numbers or scaled decimals.  Historic systems just convert to floating
+point.  It would be possible to implement a floor square root like the
+one for integers, but it was easiest to follow historic practice.
+
+Smalltalk also defines a general exponentiation operator for all numbers.
+However, section 5.6.2.27 says of ($x$~raisedTo:~$y$) that
+\begin{quote}
+If [$y$ is an integer] answer the result of [raising $x$ to an
+integral power]. Otherwise, answer
+\begin{quote}
+\begin{tabbing}
+\sffamily (x asFloat ln * operand) exp
+\end{tabbing}
+\end{quote}
+\end{quote}
+This has the unfortunate consequence that $-27^{1/3}$ is an error
+instead of $-3$, but it does mean that we do not need to specify this
+operation for scaled decimals.
+
+Every value in Smalltalk can be hashed.  If $x = y$ it is required
+that $x$~hash = $y$~hash.  This means, for example,
+that 1, 1.0, 1.00, and 1.0e0 must all have the same hash value.
+Since Smalltalk systems already have to define how to hash rational
+numbers, we can express that requirement by delegation to a
+\hask{rationalHash} function, which is someone else's problem.
+\begin{quote}
+\begin{tabbing}
+\sffamily hash $::$ Real a $\Rightarrow$ a $\rightarrow$ Int\\
+\sffamily hash x = rationalHash (toRational x)
+\end{tabbing}
+\end{quote}
+One commercial system hashes all numbers by truncating them to integers,
+so as to satisfy the ``numeric equality $\Rightarrow$ same hash,
+regardless of type'' requirement; that is certainly a possibility.
+
+\section{Testing the specification}
+
+QuickCheck \cite{QC1,QC2} is a type-driven library for testing functional
+properties by generating random test cases.
+Using the QuickCheck \cite{QC4} library, we can write tests like these:
+\begin{quote}
+\begin{tabbing}
+\sffamily prop\_scale =\\
+\verb|    |\sffamily    forAll siGen \$ $\lambda$i $\rightarrow$  \\
+\verb|    |\sffamily    forAll ssGen \$ $\lambda$s $\rightarrow$  \\
+\verb|    |\sffamily    scale (toScaledDecimal i s) == s\\
+\\
+\sffamily prop\_ratio =\\
+\verb|    |\sffamily    forAll siGen \$ $\lambda$n $\rightarrow$\\
+\verb|    |\sffamily    forAll piGen \$ $\lambda$d $\rightarrow$  \\
+\verb|    |\sffamily    forAll ssGen \$ $\lambda$s $\rightarrow$\\
+\verb|    |\sffamily    ratio (toScaledDecimal n s) (toScaledDecimal d s) == ratio n d\\
+\\
+\sffamily prop\_equality\_ignores\_scale =\\
+\verb|    |\sffamily    forAll siGen \$ $\lambda$n $\rightarrow$\\
+\verb|    |\sffamily    forAll ssGen \$ $\lambda$s $\rightarrow$\\
+\verb|    |\sffamily    forAll ssGen \$ $\lambda$t $\rightarrow$\\
+\verb|    |\sffamily    toScaledDecimal n s == toScaledDecimal n t\\
+\\
+\sffamily prop\_equality\_commutes =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$  \\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$y $\rightarrow$\\
+\verb|    |\sffamily    (x == y) == (y == x)\\
+\\
+\sffamily prop\_equality\_is\_transitive =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$y $\rightarrow$\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$z $\rightarrow$\\
+\verb|    |\sffamily    x == y $\Longrightarrow$ (y == z) == (x == z)\\
+\\
+\sffamily prop\_less\_and\_greater\_equal\_are\_complements =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$y $\rightarrow$\\
+\verb|    |\sffamily    (x $<$ y) /= (x $\ge$ y)\\
+\\
+\sffamily prop\_negate\_negates\_sign =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    signum (negate x) == negate (signum x)\\
+\\
+\sffamily prop\_negate\_cancels =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    negate (negate x) == x\\
+\\
+\sffamily prop\_abs\_times\_sign\_is\_identity =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    abs x * signum x == x\\
+\\
+\sffamily prop\_to\_integer\_is\_inverse\_of\_from\_integer =\\
+\verb|    |\sffamily    forAll siGen \$ $\lambda$i $\rightarrow$\\
+\verb|    |\sffamily    toInteger (fromInteger i $::$ ScaledDecimal) == i\\
+\\
+\sffamily prop\_zero\_is\_additive\_identity =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    forAll ssGen \$ $\lambda$s $\rightarrow$\\
+\verb|    |\sffamily    \textbf{let} z = toScaledDecimal 0 s \textbf{in}\\
+\verb|    |\sffamily    z + x == x \&\& x + z == x \&\& x - z == x\\
+\\
+\sffamily prop\_addition\_commutes =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$y $\rightarrow$\\
+\verb|    |\sffamily    x + y == y + x\\
+\\
+\sffamily prop\_addition\_associates =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$y $\rightarrow$\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$z $\rightarrow$\\
+\verb|    |\sffamily    x + (y + z) == (x + y) + z\\
+\\
+\sffamily prop\_negation\_is\_compatible\_with\_subtraction =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$y $\rightarrow$\\
+\verb|    |\sffamily    x - y == x + negate y\\
+\\
+\sffamily prop\_left\_distribution\_holds =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$y $\rightarrow$\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$z $\rightarrow$\\
+\verb|    |\sffamily    x * (y + z) == x * y + x * z\\
+\\
+\sffamily prop\_div\_is\_floored\_division =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    forAll nzGen \$ $\lambda$y $\rightarrow$\\
+\verb|    |\sffamily    x `div` y = fromInteger (floor (ratio x y))\\
+\\
+\sffamily prop\_quot\_is\_truncated\_division =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    forAll nzGen \$ $\lambda$y $\rightarrow$\\
+\verb|    |\sffamily    x `quot` y = fromInteger (truncate (ratio x y))\\
+\\
+\sffamily prop round\_rounds =\\
+\verb|    |\sffamily    forAll sdGen \$ $\lambda$x $\rightarrow$\\
+\verb|    |\sffamily    \textbf{let} t = fromIntegral (round x) \textbf{in}\\
+\verb|    |\sffamily    abs (x - t)*2 $\le$ 1
+\end{tabbing}
+\end{quote}
+In all, 50 properties were written and tested.  The original definitions
+of (/) and \hask{round} were wrong; the tests found that.  In the binary
+version of the specification, the tests also found an error in output
+conversion.  There are more than 2.5 times as many
+SLOC in test cases than there are in the code being tested.
+The test cases felt easier to write, but had a higher error rate.
+
+\section{Defining the Smalltalk operations}
+\begin{tabular}{ll}
+Smalltalk operation   & is defined as\\
+$x \ast y$            & $x \ast y$ \\
+$x + y$               & $x + y$ \\
+$x - y$               & $x - y$ \\
+$x / y$               & $x / y$ \\
+$x // y$              & $x$ `div` $y$\\
+$x < y$               & $x < y$ \\
+$x = y$               & $x == y$ \\
+$x \backslash\backslash y$ & $x$ `mod` $y$\\
+$x$ abs               & abs $x$\\
+$x$ asFloat           & asFloatE or asFloatD\\
+$x$ asFloatE          & fromRational (toRational $x$) :: Float\\
+$x$ asFloatD          & fromRational (toRational $x$) :: Double\\
+$x$ asFloatQ          & like asFloatD\\
+$x$ asFraction        & toRational $x$\\
+$x$ asInteger         & toInteger $x$\\
+$x$ asScaledDecimal: $s$ & toScaledDecimal $x$ $s$\\
+$x$ ceiling           & ceiling $x$\\
+$x$ floor             & floor $x$\\
+$x$ fractionPart      & snd (properFraction $x$)\\
+$x$ integerPart       & fst (properFraction $x$)\\
+$x$ negated           & negate $x$\\
+$x$ negative          & $x < 0$\\
+$x$ positive          & $x >= 0$\\
+$x$ printString       & shows $x$ ('s' : show (scale $x$))\\
+$x$ quo: $y$          & $x$ `quot` $y$\\
+$x$ raisedToInteger: $y$ & $x$ \verb|^^| $y$ \\
+$x$ reciprocal        & recip $x$\\
+$x$ rem: $y$          & $x$ `rem` $y$\\
+$x$ rounded           & round $x$\\
+$x$ roundTo: $y$      & roundTo $x$\\
+$x$ scale             & scale $x$\\
+$x$ sign              & signum $x$\\
+$x$ sqrt              & sqrt (fromRational (toRational x) :: Double)\\
+$x$ squared           & $x$ \verb|^^| 2\\
+$x$ strictlyPositive  & $x > 0$\\
+$x$ to: $z$           & enumFromThenTo $x$ ($x+1$) $z$\\
+$x$ to: $z$ by: $y$   & enumFromThenTo $x$ ($x+y$) $z$\\
+$x$ truncated         & truncate $x$\\
+$x$ truncateTo: $y$   & truncateTo $x$
+\end{tabular}
+
+\section{Generality of this specification, and suitability of Haskell}
+
+This specification covers unbounded scaled decimals with the scale as
+part of the value.  It is equally suitable for languages with static
+typing (it's written in one) and dynamic typing (it was devised for
+one).  Essentially the same code, after changing (\hask{Decimal},
+\hask{SD}, \hask{10}, \hask{5}) to (\hask{Binary}, \hask{SB}, \hask{2},
+\hask{1}), provides an equally good specification for unbounded scaled
+binaries with the scale as part of the value; the trickiest change is
+number $\Leftrightarrow$ string conversion.
+
+Thanks to the \hask{approx} function, unbounded integers are not
+essential; results could be clamped within a fixed range.
+
+Languages like PL/I, Ada, and SQL are different from this
+specification in two ways.  First,
+the scale is part of the type, not the value.  Second, the numbers
+are bounded by a precision (PL/I, SQL) or range (Ada) which is also
+part of the type.
+
+Haskell with multi-parameter type classes is powerful enough to
+encode natural numbers as types and to do arithmetic on these types
+at compile time.  The value 12 would be encoded as the type D1 :* D2.
+This makes it possible to express interfaces like
+\begin{quote}
+\begin{tabbing}
+\sffamily add\_fd, sub\_fd $::$ (Nat sx, Nat sy, Nat s, Max sx sy s)\\
+\verb|               |\sffamily               $\Rightarrow$ FixedDecimal sx $\rightarrow$ FixedDecimal sy $\rightarrow$ FixedDecimal s
+\end{tabbing}
+\end{quote}
+and \hask{FixedDecimal} and \hask{FixedBinary} modules using this way
+of encoding scales in types have been written.  This way of adding is
+not compatible with the normal Haskell requirement that the arguments
+and result of (+) should all be the same type, so those modules make
+no attempt to fit into the normal Haskell type classes.
+
+It should be possible to encode a limited precision
+as a type parameter just like the scale; all of the rules for deriving
+the precision and scale of a result given in \cite{PLI} are expressible
+in Haskell type-level arithmetic.  The implementations would be more
+complicated, and so would the interfaces, because now overflow would
+be a possibility.  One would want to emulate the style of \cite{LIA1}
+fairly closely.
+
+Haskell's type system, support for unbounded \hask{Integer}s, support
+for unbounded \hask{Rational}s, and QuickCheck, meant that the code
+really is at the level of an executable specification and that errors
+were discovered quickly.
+
+Perhaps there is now hope that there might be a LIA-4: Binary and
+decimal fixed point arithmetic.
+
+\begin{thebibliography}{}
+
+\bibitem[\protect\citeauthoryear{Ada-Europe}{Ada-Europe}{2006}]{ADAW}
+Ada-Europe 2006.
+\newblock {\em Ada 2005 Language Reference Manual}.
+\newblock Ada-Europe.
+\newblock [Online; accessed 6-Dec-2011].
+
+\bibitem[\protect\citeauthoryear{American National Standards Institute,
+  Inc.}{American National Standards Institute, Inc.}{1998}]{ANST}
+American National Standards Institute, Inc. 1998.
+\newblock {\em ANSI INCITS 319-1998, Programming Languages --- Smalltalk}.
+\newblock American National Standards Institute, Inc., 11 West 42nd Street, New
+  York, NY 10036.
+
+\bibitem[\protect\citeauthoryear{Claessen and Hughes}{Claessen and
+  Hughes}{2000}]{QC1}
+{\sc Claessen, K.} {\sc and} {\sc Hughes, J.} 2000.
+\newblock Quickcheck: A lightweight tool for random testing of haskell
+  programs.
+\newblock In {\em ACM SIGPLAN Notices}. ACM Press, New York, USA, 268--279.
+
+\bibitem[\protect\citeauthoryear{Claessen and Hughes}{Claessen and
+  Hughes}{2005}]{QC2}
+{\sc Claessen, K.} {\sc and} {\sc Hughes, J.} 2005.
+\newblock Specification-based testing with quickcheck.
+\newblock In {\em The Fun of Programming}, {J.~Gibbons} {and} {O.~de~Moor},
+  Eds. Palgrave Macmillan, Chapter~2, 17--40.
+
+\bibitem[\protect\citeauthoryear{Claesson}{Claesson}{2010}]{QC4}
+{\sc Claesson, K.} 2010.
+\newblock Quickcheck package for haskell.
+\newblock \url{http://hackage.haskell.org/package/QuickCheck-2.1.0.3}.
+\newblock [Online; accessed 11-Oct-2011].
+
+\bibitem[\protect\citeauthoryear{Haskell community}{Haskell wiki}{2011}]{MATH}
+Haskell wiki 2011.
+\newblock Mathematical prelude discussion.
+\newblock
+  \url{http://www.haskell.org/haskellwiki/Mathematical_prelude_discussion}.
+\newblock [Online; accessed 6-Dec-2011].
+
+\bibitem[\protect\citeauthoryear{IBM}{IBM}{2002}]{PLI}
+IBM 2002.
+\newblock {\em Enterprise PL/I for z/OS and OS/390: Language Reference\/}
+  SC27-1460-02, 4th edition, Version 3 Release 2.0 Ed.
+\newblock IBM.
+
+\bibitem[\protect\citeauthoryear{IBM}{IBM}{2008}]{Z360}
+IBM 2008.
+\newblock {\em z/Architecture Principles of Operation\/} SA22-7832-06, Seventh
+  edition Ed.
+\newblock IBM.
+
+\bibitem[\protect\citeauthoryear{ISO}{ISO}{1994}]{LIA1}
+ISO 1994.
+\newblock {\em ISO/IEC 10967-1:1994, Language independent arithmetic, Part 1:
+  Integer and floating point arithmetic}.
+\newblock ISO, www.iso.org.
+
+\bibitem[\protect\citeauthoryear{ISO}{ISO}{2001}]{LIA2}
+ISO 2001.
+\newblock {\em ISO/IEC 10967-2:2001, Language independent arithmetic, Part 2:
+  Elementary numerical functions}.
+\newblock ISO, www.iso.org.
+
+\bibitem[\protect\citeauthoryear{ISO}{ISO}{2003}]{SQL}
+ISO 2003.
+\newblock {\em ISO/IEC 9075-2:2003, Information technology --- Database
+  languages --- SQL --- Part 2: Foundation (SQL/Foundation)}.
+\newblock ISO, www.iso.org.
+
+\bibitem[\protect\citeauthoryear{ISO}{ISO}{2006}]{LIA3}
+ISO 2006.
+\newblock {\em ISO/IEC 10967-3:2006, Language independent arithmetic, Part 3:
+  Complex integer and floating point arithmetic and complex elementary
+  numerical functions}.
+\newblock ISO, www.iso.org.
+
+\bibitem[\protect\citeauthoryear{ISO}{ISO}{2007}]{ADA2}
+ISO 2007.
+\newblock {\em ISO/IEC 8652:1995): Information Technology --- Programming
+  Languages --- Ada, as updated by changes from Technical Corrigendum 1
+  (ISO/IEC 8652:1995:TC1:2000), and Amendment 1 (ISO/IEC 8526:AMD1:2007)}.
+\newblock ISO, www.iso.org.
+
+\bibitem[\protect\citeauthoryear{Peyton~Jones}{Peyton~Jones}{2003}]{HASK}
+{\sc Peyton~Jones, S.} 2003.
+\newblock {\em Haskell 98 language and libraries: the Revised Report}.
+\newblock Cambridge University Press, Cambridge, UK.
+
+\bibitem[\protect\citeauthoryear{Thielemann}{Thielemann}{2011}]{NPHW}
+{\sc Thielemann, H.} 2011.
+\newblock Numeric prelude.
+\newblock \url{http://www.haskell.org/haskellwiki/Numeric_Prelude}.
+\newblock [Online; accessed 6-Dec-2011].
+
+\bibitem[\protect\citeauthoryear{Thielemann, Thurston, and
+  Johansson}{Thielemann et~al\mbox{.}}{2011}]{NPHP}
+{\sc Thielemann, H.}, {\sc Thurston, D.}, {\sc and} {\sc Johansson, M.} 2011.
+\newblock Numeric prelude package, version 0.2.2.1.
+\newblock \url{http://hackage.haskell.org/package/numeric-prelude}.
+\newblock [Online; accessed 6-Dec-2011].
+
+\end{thebibliography}
+
+%% \section{On-line materials}
+
+%% Scaled.hs,
+%% ScaledDecimal.hs, ScaledDecimalTest.hs,
+%% ScaledBinary.hs, ScaledBinaryTest.hs,
+%% FixedDecimal.hs, and FixedBinary.hs.
+
+%% The last two require the \hask{Data.TypeLevel.Num} module,
+%% which is not part of the Haskell Platform distribution, but is
+%% easily installed using Haskell's package management system ``cabal''.
+%% They do not and cannot fit into the standard Haskell classes.
+
+\received{Dec 2011}{Mon Year}{Mon Year}
+\end{document}
