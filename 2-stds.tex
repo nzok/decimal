@@ -1,0 +1,455 @@
+\documentclass{article}
+
+\begin{document}
+
+\def\subI{${}_I$}
+\def\subF{${}_F$}
+\def\subD{${}_D$}
+\def\ifso{\mathbin{?}}
+
+\section{Rounding}
+
+Converting a rational number $x \in {\cal Q}$ to a nearby
+integer $n \in {\cal Z}$ can be done in surprisingly many
+ways.  We shall take the floor operation
+\[ \lfloor x \rfloor = \max \{n \in {\cal Z} | n \le x\} \]
+as the basic operation.  We also need $\bot$ (undefined),
+even$(n)$ testing whether $n$ is a multiple of 2,
+$p \ifso t : f$ (if $p$ then $t$ else $f$), and $\sigma(x)$ =
+$x\ge 0 \ifso 1 : -1$.
+
+\begin{tabular}{lll}
+exact & $x=\lfloor x\rfloor \ifso x : \bot$ & exception if not integral\\
+down  & $\lfloor x \rfloor$             & floor\\
+up    & $\lceil x \rceil = -\lfloor -x \rfloor$ & ceiling\\
+in    & $\sigma(x)\times\lfloor|x|\rfloor$ & truncate\\
+out   & $\sigma(x)\times\lfloor|x|+\frac12\rfloor$ & away from zero\\
+evenr & $\mbox{even}(\lfloor x\rfloor) \ifso \lfloor x \rfloor
+        : \lceil x \rceil$ & round to even\\
+oddr  & $\mbox{even}(\lfloor x\rfloor) \ifso \lceil x \rceil
+        : \lfloor x \rfloor$ & round to odd (not used in practice)
+\end{tabular}
+
+None of these is rounding.  For that we need
+\[\mbox{nearest} f x = d > \frac12 \ifso \lceil x \rceil :
+ d < \frac12 \ifso \lfloor x \rfloor : f(x) \]
+\noindent where
+\[ d = x - \lfloor x \rfloor \]
+\
+This higher-order function can be combined with the seven conversions
+above to make seven ``round to nearest'' modes such as nearest out
+(banker's rounding) or nearest evenr (IEEE rounding).
+
+\section{Existing standards}
+
+\subsection{ISO 10967 Language-independent arithmetic}
+
+Roughly speaking, the three parts of LIA cover everything
+in Fortran 95 and C99 and a little bit more.
+
+We have to discuss ISO 10967 for two reasons: it is the
+standard that is meant to serve as a reference for arithmetic
+in programming languages, and it does define fixed point
+numbers (but no operations on them).  Any definition of
+fixed point arithmetic should be practically compatible with it.
+
+Further, the 1998 edition provided axioms (though no evidence
+that the system described was consistent with them) which could
+serve as models for checking a fixed-point specification.
+
+The Language-independent arithmetic standard has three parts.
+
+\subsubsection{Part: 1 Integer and floating point arithmetic}
+An integer data type $I$ has parameters {\it bounded}\subI{}
+true if the set is finite, {\it minint}\subI{} being the
+smallest value or $-\infty$, and {\it maxint}\subI{} being the
+largest value or $\infty$.  If {\it bounded}\subI{} is true,
+then {\it minint}\subI{} can be 0, -{\it maxint}\subI{}, or
+-({\it maxint}\subI{}+1).  Curiously, while both signed and
+unsigned bounded integers are allowed, unbounded integers
+must be signed; ``unbounded natural numbers are not covered
+by this document.''  The usual 6 comparison operations are
+defined.
+
+The arithmetic operations are {\it neg}\subI{} (unary negation),
+{\it add}\subI{}, {\it sub}\subI{}, {\it mul}\subI{},
+flooring division {\it quot}\subI{} and the corresponding
+remainder {\it mod}\subI{}, {\it abs}\subI{},
+and {\it signum}\subI{} taking values 1 and -1.  The 1998 edition
+included {\it sign}\subI{} with values 1, 0, and -1, but that was
+dropped.  The 1998 edition included
+truncating division {\it div}${}^t_I$ and the corresponding
+remainder {\it rem}${}^t_I$ and two additional remainder functions
+{\it mod}${}^a_I$ and {\it mod}${}^p_I$, all of which were deleted
+in the 2012 edition.
+
+LIA-1 integer arithmetic must handle overflow by causing
+an overflow indication.  This includes conversion to a 
+smaller integer type.  Wrapping arithmetic is covered in
+part 2.
+
+A floating point data type $F$ has parameters {\it r}\subF{}
+(radix), {\it p}\subF{} (precision), {\it emax}\subF{} (largest
+exponent), {\it emin}\subF{} (smallest exponent),
+{\it denorm}\subF{} (whether IEEE-style subnormals are supported),
+and {\it ice\_60559}\subF{} (whether $F$ conforms to the IEEE
+standard).  The usual 6 comparison operations are defined,
+taking care to dodge around infinities and NaNs.
+
+Additional tests {\it isnegzero}\subF{}, {\it istiny}\subF{},
+{\it isnan}\subF{}, and {\it issignan}\subF{} express tests that
+cannot be done using ordinary comparison against zero.
+
+Three sets of basic operations (rounding to nearest even, down,
+or up) are defined if {\it denorm}\subF{} is true, just the
+rounded to nearest set if {\it denorm}\subF{} is false.
+The basic operations are {\it add}, {\it sub}, {\it mul},
+{\it div}, and {\it sqrt}.
+
+Some arithmetic operations are not sensitive to rounding
+mode: {\it abs}\subF{}, two-valued {\it signum}\subF{},
+the IEEE remainder {\it residue}\subF{}, {\it intpart}\subF{},
+{\it fractpart}\subF{}, {\it succ}\subF{} (next higher),
+{\it pred}\subF{} (next lower), and {\it ulp}\subF{}.
+
+There are three conversions from floating point to integer:
+{\it ceiling}${}_{F\rightarrow I}$,
+{\it floor}${}_{F\rightarrow I}$, and
+{\it rounding}${}_{F\rightarrow I}$.
+
+Section 5.3.5 defines floating point to fixed point conversion
+(for the sake of format conversions like C's {\tt \%.$n$f}) and in
+passing defines unbounded fixed point types, with parameters
+{\it r}\subD{} (radix), {\it d}\subD{} (``density'' = scale),
+and {\it dmax}\subD{} (a positive element of $\cal R$ or
+undefined).  Two sets are defined:
+\begin{eqnarray*}
+D^* &=& \{n/(r_D^{d_D}) | n \in {\cal Z}\}\\
+D &=& D^* \mbox{if unbounded}\\
+D &=& D^* \cap [-dmax_D,dmax_D] \mbox{if bounded}
+\end{eqnarray*}
+Three rounding functions {\it nearest}\subD{} (our nearest evenr),
+{\it up}\subD{} (ceiling), and
+{\it down}\subD{} (floor), all ${\cal R} \rightarrow D^*$, are
+defined.  Conversion from floating point to fixed point and
+from fixed point to floating point uses one of these rounding
+modes just like the basic arithmetic operations.
+
+However, fixed point exists in LIA {\it only} for I/O conversion;
+there are no comparison or arithmetic operations on $D$.
+
+Floating point arithmetic with truncation is conspiciously
+absent from the 2012 edition of LIA-1.  What it describes is
+accurately rounded arithmetic and the building blocks for
+interval arithmetic.
+
+\subsubsection{Part: 2 Elementary numerical functions}
+
+This part was issued in 2001.  There are some slight ``continuity
+errors'' due to the revision of LIA-1: {\it iec\_559}\subF{} is
+now {\it iec\_60559}\subF{}, for example.  This is another example
+of why standards need to be machine-checked.
+
+The additional integer operations include maximum, minimum,
+greatest common divisor, and least common multiple
+of a pair or sequence, if $x\ge y$ then $x-y$ else 0 (diminish),
+integer power (but broken for $0^0$ so of very little use),
+floored shifting by a power of 2 or 10, floored square root,
+divisibility, evenness, oddness, floored ({\it quot}\subI{},
+{\it mod}\subI{}), rounded ({\it ratio}\subI{}, {\it residue}\subI{}),
+and ceilinged ({\it group}\subI{}, {\it pad}) quotient and remainder.
+(The {\it pad} operation is actually $\lceil x/y \rceil\times y - x$.)
+
+There are also wrapping versions of {\it add}, {\it sub}, and
+{\it mul}, plus ``overflow'' versions giving you the high bits
+lost by wrapping so that multiprecision arithmetic can be written.
+
+The additional floating point operations include maximum and
+minimum of a pair or sequence, diminish,  conversion to integral
+in floating form ({\it floor}\subF{}, {\it rounding}\subF{}, and
+{\it ceiling}\subF{}) together with {\it *\_rest}\subF{} operations
+providing the lost fraction parts exactly, square root (already
+in part 1) and reciprocal square root.  There is an operation
+for multiplying two floats giving a result in a wider format with
+a single rounding, just right for dot product.
+
+The elementary transcendental operations include raising a
+floating point number to an integer or floating point power,
+plus the usual exponential, logarithmic, trigonometric, and
+hyperbolic functions in several forms.
+
+\subsubsection{Part 3: Complex integer and floating point
+arithmetic and complex elementary numerical functions}
+
+This part was issued in 2006.  It defines imaginary and
+complex integer and imaginary and complex floating point
+data types, basic operations on them, and elementary
+transcendental operations.  Maximum and minimum are extended
+to imaginary but not to complex types.
+
+Part 3 ends with recommended changes to some of the operations
+defined in Part 2 ``so that the returned angle is for the
+proper quadrant''.  Again this suggests that a standard on which
+great care was taken might have benefited from testing.
+
+\section{ISO/IEC/IEEE 60559:2011}
+
+This is the standard for floating point arithmetic.
+It is the ISO/IEC edition of IEEE 754:2008, which in
+turn was an update of classic IEEE 754 arithmetic to
+include decimal floating point.  It specifies
+32-, 64-, and 128-bit binary formats that can hold about 7,
+16, and 34 decimal digits respectively
+and 64- and 128-bit decimal formats that can hold
+16 and 34 decimal digits respectively (table 3.2).
+
+It is common belief that IEEE 754 arithmetic is all but
+universal.  However, few systems support 128-bit binary floats
+(the popular ARM, x86, and x86-64 architectures do not; SPARC
+does), and even fewer support decimal floating-point natively
+(recent IBM zSeries and POWER machines do).
+
+IEEE 754 originally defined four rounding modes, up, down, in,
+and nearest evenr in our terminology.  The current standard
+adds nearest out (banker's rounding).
+
+\subsection{COBOL}
+
+COBOL is one of the oldest programming languages still in use.
+It was designed to support accounting applications on small
+machines.  For example, the Siemens 3003, regarded as ``a large-scale
+\dots computer'', had 8000 words of
+storage; the COBOL 61 compiler for that machine needed 10 passes.
+Brinch Hansen and House [ref] report that ``The major problem of
+implementation turned out to be the numerous definition problems
+created by the vagueness of the official Cobol report.''
+
+One of the major features of COBOL from the beginning was its
+use of decimal fixed point arithmetic rather than floating point.
+Accounting applications required answers that were exact or
+computed according to known rounding rules.  Binary integers
+and floats were eventually adopted in 2002, but had been common
+extensions for many years.  
+
+A number is characterised by (a) whether it is signed or not,
+(b) its precision, and (c) its scale.  A declaration like\\
+77 SOME-NUMBER PICTURE S9$(b)$V$9(a)$\\
+declares a signed variable (S) with a precision of $b+a$
+decimal digits and a scale of $a$.  The letter V designates
+a virtual (not actually stored) decimal point.  In terms of
+LIA-1, this corresponds to $r_D = 10$, $d_D = a$,
+{\it dmax}${}_D = (10^{a+b}-1)/10^b$.
+
+In LIA-1, arithmetic is only defined between values of the
+same type.  In COBOL, it is extremely common for the
+operands and result of an operation to be of different types.
+A typical instruction is
+\begin{tabbing}
+www\=\kill
+MULTIPLY X BY Y GIVING Z ROUNDED\\
+\> ON SIZE ERROR {\it statements}\\
+\>  NOT SIZE ERROR {\it statements}\\
+END MULTIPLY  
+\end{tabbing}
+\noindent where the product $X\times Y$ is computed
+according to exact rational arithmetic, rounded to the
+scale of $Z$, and if the result is too large to fit,
+the ON SIZE ERROR statements are executed, otherwise
+the result is stored in Z and the NOT SIZE ERROR
+statements are executed.
+
+\subsubsection{Four semantics for arithmetic}
+
+The previous paragraph is a lie.  The current COBOL standard does not
+offer a semantics for arithmetic.  It offers {\it four} semantics for
+arithmetic.  A COBOL program may contain an OPTIONS paragraph near
+the beginning:
+\begin{tabbing}
+www\=wwwwwwwwwwwwwwww\=\kill
+OPTIONS.\\
+\> [ARITHMETIC IS \{NATIVE $|$ STANDARD $|$\\
+\> \> STANDARD-BINARY $|$ STANDARD-DECIMAL \}]\\
+\> [DEFAULT ROUNDED MODE IS one of eight]\\
+\> \dots\\
+\> [INTERMEDIATE ROUNDING IS one of four]\\
+\end{tabbing}
+
+In our terminology, the rounding modes are out, nearest out,
+nearest even, nearest in, exact, up, down, and in.
+
+There is a subtle difference between these statements:
+\begin{tabbing}
+MULTIPLY X BY Y GIVING Z.\\
+COMPUTE Z = X * Y.
+\end{tabbing}
+The latter involves an arithmetic expression which has an
+intermediate result that is then assigned to the destination.
+The former does not.  It appears that the MULTIPLY statement
+involves a single rounding whereas the COMPUTE statement may
+involve a double rounding.
+
+{\it Native} arithmetic is whatever the implementor says it is.
+
+{\it Standard} arithmetic is what used to be standard arithmetic in
+COBOL-85.  It does not cover binary or floating-point operations,
+which are treated as native.  Standard arithmetic is declared to
+be obsolete.  ``A standard intermediate data item is \dots the
+unique value zero or an abstract, signed, normalized decimal
+floating-point temporary data item \dots with a precision of
+32 decimal digits'' and a scale of -999 to 999 (roughly speaking).
+Intermediate values are rounded in certain circumstances.
+
+In expressions,
+addition, subtraction, multiplication, and
+division are are ``the exact [result] truncated
+to 32 significant digits, normalized, and stored in a standard
+intermediate data item''.
+
+{\it Standard-binary} arithmetic requires arithmetic operations
+to be done according to IEEE binary floating-point
+arithmetic (128-bit format).
+
+{\it Standard-decimal} arithmetic requires arithmetic operations
+to be done according to IEEE decimal floating-point arithmetic
+(128-bit format).
+
+The result is that the meaning of an arithmetic statement or
+expressions can be changed by a line thousands of lines away.
+
+The standard tries very hard to avoid using
+mathematical notation.  Let us take Format 5 of the
+DIVIDE statement as an example:
+\begin{quote}
+\begin{tabbing}
+www\=\kill
+DIVIDE \{identifier-2$|$literal-2\} BY \{identifier-1$|$literal-1\}\\
+\> GIVINE identifier-3 [rounded-prhase]\\
+\> REMAINDER identifier-4\\
+\> [ON SIZE ERROR imperative-statement-1]\\
+\> [NOT SIZE ERROR imperative-statement-2]\\
+\> [END-DIVIDE]
+\end{tabbing}
+
+1) When native arithmetic is in effect, the quotient is the result
+of dividing the dividend by the divisor.  When standard arithmetic,
+stnadard-decimal arithmetic, or standard-binary arithmetic is in
+effect, the quotient is the result of the arithmetic expression
+$$(\mbox{dividend} / \mbox{divisor})$$
+where the values of dividend and divisor are ...
+
+6b) The quotient is then formed as specified in general rule 1
+and stored in identifier-3 \dots
+
+6c) If the size error condition is not raised, a subsidiary
+quotient is developed that is signed and derived from the
+quotient by truncation of digits at the least significant end
+and that has the same number of digits and the same decimal point
+location as the data item references by identifier-3.  The
+remainder is calculated as indicated in general rules 7 and is
+stored in the data item referenced by identifier-4 unless
+storing the value would cause a size error condition \dots
+
+7) When native arithmetic is in effect, the remainder is the
+result of multiplying the subsidiary quotient and the divisor
+and subtracting the product from the dividend.  When standard
+standard arithmetic, standard-decimal arithmetic, or
+standard-binary arithmetic is in effect, the remainder is the
+result of the arithmetic expression
+$$(\mbox{divided} - (\mbox{subsidiary-quotient} * \mbox{divisor}))$$
+where \dots
+\end{quote}
+
+The reason the standard {\it does} use some expressions here is
+so that the rules for intermediate rounding apply to them.  With
+4 arithmetics, 8 intermediate roundings, and 4 default roundings,
+a simple DIVIDE statement could mean 128 different things.
+
+\subsection{PL/I}
+
+PL/I was introduced in the mid-1960s as a blend of Algol,
+Fortran, and COBOL.  The ECMA-50 (1976), ANSI X3.53-1976, BS 7148:1990,
+NF Z 65-500, and ISO 6160:1979 standards for PL/I are all basically the
+same.  They have expired.  BS ISO/IEC 6522:1992 (Information technology,
+Programming languages, PL/I general purpose subset) is still current.
+
+PL/I fixed point types are characterised by a {\it base} (2 or 10),
+a {\it precision} (total number of digits), and a {\it scale} (number
+of digits after the radix point).  There are actually two sets of
+rules for determining the precision and scale of a result (ANSI and
+IBM).  For FIXED DECIMAL they coincide"
+\begin{itemize}
+\item
+$(p_1,s_1) \pm (p_2,s_2) \Rightarrow (p,s)$ where\\
+$s = s_1 \vee s_2$\\
+$p = 1+s+(p_1-s_1 \vee p_2-s_2)$
+\item
+$(p_1,s_1) \times (p_2,s_2) \Rightarrow (p,s)$ where\\
+$s = s_1 + s_2$\\
+$p = 1+p_1+p_2$
+\item
+$(p_1,s_1) / (p_2,s_2) \Rightarrow (p,s)$ where\\
+$s = N-p_1+s_1-s+2$\\
+$p = N$ and $N$ is the implementation-defined maximum precision.
+\item
+MOD$((p_1,s_1), (p_2,s_2)) \Rightarrow (p,s)$ where\\
+$s - s_1 \vee s_2$\\
+$p = N \wedge (p_2 - s_2 + s)$.
+\item
+$(p_1,s_1) ** k \Rightarrow (p,s)$ where\\
+$s = s_1\times k$\\
+$p = (p_1 + 1) \times k - 1$, if $k$ is a literal integer.
+\item
+ROUND$((p_1,s_1), s) \Rightarrow (p,s)$ where\\
+$s$ is given as the second argument\\
+$p = 1 \vee (p_1-s_1+1-s \wedge N)$
+\end{itemize}
+The rule for division can lead to some nasty surprises.
+For example, 25+01/3 yields 25.3333333333333 but
+25+1/3 results in an overflow.  So there are special functions
+ADD(x, y, p[, s]), SUBTRACT(x, y, p[, s]),  MULTIPLY(x, y, p[, s]),
+DIVIDE(x, y, p[, s]), 
+computing a result to a specified precision and scale (default s = 0)
+in a single rounding.  There is no version of MOD with precision and
+scale parameters.  In assignment
+statements, ``padding or truncation can occur on the left or the right.
+If nonzero \dots digits on the left are lost, the SIZE condition is
+raised.''  This means that a statement like\\
+X = X * Y;\\
+uses the ``in'' rounding mode.  Unlike COBOL, PL/I does not offer
+control over rounding, not even using the special functions, so there is
+no way to change this.
+
+\subsection{SQL}
+\subsection{Smalltalk}
+
+Smalltalk-80 is the programming language that brought Object-Oriented
+programming and Integrated Development ENvironments to the world.
+It got an ANSI standard in 1989.  The standard includes unbounded
+integers, three sizes of floating point, rational numbers, and
+a ScaledDecimal class.
+
+For the semantics of operations on ScaledDecimal numbers,
+the Smalltalk standard defers to LIA.  Unfortunately, LIA has,
+by intent and quite explicitly, nothing to say about fixed point
+arithmetic.
+
+The result of this is that different Smalltalk systems do quite
+different things with such numbers.  For example, some Smalltalks
+treat them as arbitrary rational numbers, with the scale factor
+controlling only how they are printed.
+
+\subsection{Java, C$\sharp$, and Swift}
+
+ISO/IEC 23270:2003 defines C$\sharp$ as it was in 2002.
+C$\sharp$ changes faster than ISO processes can keep up with.
+The current specification is C$\sharp$ version 6.0.
+
+Java is an industry standard pushed by Oracle (formerly by Sun);
+Swift is a fast-changing language pushed by Apple.
+
+All three languages have a type for decimal arithmetic.
+In all three it is a strange hybrid between fixed point
+and floating-point.  In all three the ``exponent'' range is
+much smaller than the exponent range for binary floating point.
+
+\end{document}
