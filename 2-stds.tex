@@ -19,7 +19,8 @@ $p \ifso t : f$ (if $p$ then $t$ else $f$), and $\sigma(x)$ =
 $x\ge 0 \ifso 1 : -1$.
 
 \begin{tabular}{lll}
-exact & $x=\lfloor x\rfloor \ifso x : \bot$ & exception if not integral\\
+exact & $x=\lfloor x\rfloor \ifso \lfloor x \rfloor : \bot$ &
+        exception if not integral\\
 down  & $\lfloor x \rfloor$             & floor\\
 up    & $\lceil x \rceil = -\lfloor -x \rfloor$ & ceiling\\
 in    & $\sigma(x)\times\lfloor|x|\rfloor$ & truncate\\
@@ -34,8 +35,8 @@ None of these is rounding.  For that we need
 \[\mbox{nearest} f x = d > \frac12 \ifso \lceil x \rceil :
  d < \frac12 \ifso \lfloor x \rfloor : f(x) \]
 \noindent where
-\[ d = x - \lfloor x \rfloor \]
-\
+$ d = x - \lfloor x \rfloor $
+
 This higher-order function can be combined with the seven conversions
 above to make seven ``round to nearest'' modes such as nearest out
 (banker's rounding) or nearest evenr (IEEE rounding).
@@ -207,7 +208,7 @@ It is common belief that IEEE 754 arithmetic is all but
 universal.  However, few systems support 128-bit binary floats
 (the popular ARM, x86, and x86-64 architectures do not; SPARC
 does), and even fewer support decimal floating-point natively
-(recent IBM zSeries and POWER machines do).
+(recent IBM z/Series and POWER machines do).
 
 IEEE 754 originally defined four rounding modes, up, down, in,
 and nearest evenr in our terminology.  The current standard
@@ -332,7 +333,7 @@ DIVIDE \{identifier-2$|$literal-2\} BY \{identifier-1$|$literal-1\}\\
 
 1) When native arithmetic is in effect, the quotient is the result
 of dividing the dividend by the divisor.  When standard arithmetic,
-stnadard-decimal arithmetic, or standard-binary arithmetic is in
+standard-decimal arithmetic, or standard-binary arithmetic is in
 effect, the quotient is the result of the arithmetic expression
 $$(\mbox{dividend} / \mbox{divisor})$$
 where the values of dividend and divisor are ...
@@ -376,7 +377,7 @@ PL/I fixed point types are characterised by a {\it base} (2 or 10),
 a {\it precision} (total number of digits), and a {\it scale} (number
 of digits after the radix point).  There are actually two sets of
 rules for determining the precision and scale of a result (ANSI and
-IBM).  For FIXED DECIMAL they coincide"
+IBM).  For FIXED DECIMAL they coincide:
 \begin{itemize}
 \item
 $(p_1,s_1) \pm (p_2,s_2) \Rightarrow (p,s)$ where\\
@@ -420,6 +421,125 @@ control over rounding, not even using the special functions, so there is
 no way to change this.
 
 \subsection{SQL}
+
+The ISO/IEC 9075-1:2003 standard, SQL 2003, part 1,
+says in section 4.4.3.1 that ``There are two classes of numeric
+type: {\it exact numeric}, which includes integer types and types
+with specified precision and scale; and {\it approximate numeric},
+which is essentially floating point, and for which a precision may
+optionally be specified.''  The result of an arithmetic operation
+``is of a numeric type that depends only on the numeric type of the
+operands.  If the result cannot be represented exactly in the result
+type, then whether it is rounded or truncated is implementation-defined.
+An exception condition is raised if the result is outside the range of
+numeric values of the result type, or if the arithmetic operation is not
+defined for the operands.''
+
+Numbers and arithmetic are defined in
+section 4.4 of part 2.
+\begin{quote}
+`An exact numeric type has a precision
+$P$ and a scale $S$.  $P$ is a positive integer that determines
+the number of significant digits in a particular radix $R$,
+where $R$ is either 2 or 10.  $S$ is a non-negative integer.
+Every value of an exact numeric type of scale $S$ is of the
+form $n\times 10^{-S}$,\footnote{It is possible that 10 should
+have been $R$, but only INTEGER types with $S=0$ may have $R=2$.}
+where $n$ is an integer such that $-R^P \le n < R^P$.
+[Note 13 --- Not every value in that range is necessarily a
+value of the type in question.]''
+\end{quote}
+The intent of note 13 may be to allow both sign-and-magnitude
+representation for NUMERIC types and $R$'s-complement representation
+for INTEGER types; it's not obvious why any other value would be
+excluded.
+
+Conversion may be done by rounding or truncation; it is not the
+programmer who chooses.
+\begin{quote}
+``If an assignment of some number would result in a loss of its most
+significant digit, an exception condition is raised.  If least
+significant digits are lost, implementation-defined rounding or
+truncating occurs, with no exception condition being raised.''
+
+``An approximation obtained by truncation of a numeric value $N$ for an
+$\langle$exact numeric type$\rangle$ $T$ is a value $V$ in $T$
+such that $N$ is not closer to
+zero than is $V$ and there is no value in $T$ between $V$ and $N$.
+
+An approximation obtained by rounding of a numeric value $N$ for an
+$\langle$exact numeric type$\rangle$ $T$ is a value $V$ in $T$
+such that the absolute value of the difference between $N$
+and the numeric value of $V$ is not greater than half
+the absolute value of the difference between two successive numeric
+values in $T$. If there is more than one such value $V$, then it is
+implementation-defined which one is taken.''
+\end{quote}
+
+Aside from the non-portable nature of rounding,
+arithmetic is supposed to be unsurprising:
+\begin{quote}
+``Operations on numbers are performed according to the normal
+rules of arithmetic, within implementation-defined limits \dots''
+\end{quote}
+
+Paraphrasing sections 4.4.3 and 6.26,
+\begin{itemize}
+\item The POWER function never returns an exact answer (unlike PL/I).
+\item The floor and ceiling functions return exact integers $S=0$.
+\item Unary plus, unary minus, and the absolute value function return a result
+of the same type as their argument.
+\item  The MOD function only accepts integer arguments.
+\item WIDTH\_BUCKET$(x, l, u, n)$ appears to mean
+\begin{tabbing}
+www\=www\=\kill
+if $l < u$ then\\
+\> if $x<l$ then 0\\
+\> else if $x \ge u$ then $n+1$\\
+\> else $\lfloor n\times((x-l)/(u-l)) \rfloor$\\
+else if $l > u$ then\\
+\> if $x > l$ then 0\\
+\> else if $x < u$ then $n+1$\\
+\> else $\lfloor n\times((x-u)/(l-u)) \rfloor$\\
+\end{tabbing}
+and the result has the same type as $n$, which must be integral.
+A system that can implement this function ought to be able to
+implement MOD on non-integral exact numbers.
+\item If $x$ has radix $R$, precision $P_x$, and scale $S_x$,
+and $y$ has radix $R$, precision $P_y$, and scale $S_y$,
+then $x+y$ and $x-y$ have scale max$(S_x,S_y)$ and
+implementation-defined precision;
+\item $x*y$ has scale $S_x+S_y$ and implementation-defined precision;
+\item and $x/y$ has implementation-defined precision and
+implementation-defined scale.
+\item ``If the operator is not division and the mathematical result of
+the operation is not exactly representable with the precision and scale
+of the result data type, then an exception condition is raised.''
+\item ``If the operator is division and the approximate mathematical
+result of the operation represented with the precision and scale of the
+result data type loses one or more leading significant digits after
+rounding or truncating if necessary, then an exception condition is
+raised \dots The choice of whether to round or truncate is
+implementation-defined.''
+\end{itemize}
+
+COBOL and PL/I have fixed-point decimal types in order to support
+accounting.
+SQL was given fixed-point NUMERIC types in order to inter-operate
+with COBOL and PL/I, and is very much used for accounting data.
+The problem is that SQL arithmetic is {\it not} guaranteed
+to be consistent with COBOL or PL/I or accounting rules:
+\begin{itemize}
+\item there is no programmer control over rounding;
+\item there are no precisions that have to be supported,
+not even older COBOL's 18 digits;
+\item there is no fixed-point remainder; and
+\item if you want to calculate the price of one
+apple at \$2.72 per dozen, $2.72/12$ could give
+you the answer 0 if an implementation defined the
+scale for division to always be $S=0$.
+\end{itemize}
+
 \subsection{Smalltalk}
 
 Smalltalk-80 is the programming language that brought Object-Oriented
@@ -429,14 +549,28 @@ integers, three sizes of floating point, rational numbers, and
 a ScaledDecimal class.
 
 For the semantics of operations on ScaledDecimal numbers,
-the Smalltalk standard defers to LIA.  Unfortunately, LIA has,
+the Smalltalk standard defers to ISO 10967 (LIA).  Unfortunately, LIA has,
 by intent and quite explicitly, nothing to say about fixed point
 arithmetic.
 
-The result of this is that different Smalltalk systems do quite
+The result of this is that different Smalltalk systems do very
 different things with such numbers.  For example, some Smalltalks
 treat them as arbitrary rational numbers, with the scale factor
-controlling only how they are printed.
+controlling only how they are printed, while some treat them as
+IBM-style packed decimal.  For example,
+\begin{tabbing}
+(2/3) asScaledDecimal: 2 $\Longrightarrow$ 0.66s2\\
+``and'' 0.66s2 * 3 $\Longrightarrow$ 1.98s2\\
+``but'' ((2/3) asScaledDecimal: 2) * 3 $\Longrightarrow$ 2.00s2
+\end{tabbing}
+in several Smalltalks using the ``rational number with formatting hint''
+interpretation, while
+\begin{tabbing}
+(2/3) asScaledDecimal: 2 $\Longrightarrow$ 0.67s2\\
+0.67s2 * 3 $\Longrightarrow$ 2.01s2\\
+((2/3) asScaledDecimal: 2) * 3 $\Longrightarrow$ 2.01s2
+\end{tabbing}
+in Smalltalks using the ``$n\times 10^{-s}$'' interpretation.
 
 \subsection{Java, C$\sharp$, and Swift}
 
