@@ -815,17 +815,50 @@ their representations.
 Quotient returning an integer in {\tt BigDecimal} form and
 corresponding remainder are supported.
 
-
-
 \subsection{Swift}
 
+Summary: Swift supports decimal numbers with up to 38 digits
+and a scale of -128 to 127.  
 
 Swift is a fast-changing language pushed by Apple.
 At the time of writing the current version was Swift 3.
 
-All three languages have a type for decimal arithmetic.
-In all three it is a strange hybrid between fixed point
-and floating-point.  In all three the ``exponent'' range is
-much smaller than the exponent range for binary floating point.
+Swift 2 supported ``toll-free bridging'' to the Objective-C
+type {\tt NSDecimalNumber}, ``[a]n instance [of which]
+can represent any number that can be expressed as
+mantissa
+$\times$
+$10^{exponent}$
+where mantissa
+is a decimal integer up to 38 digits long, and exponent is an
+integer from -128 through 127.''
+
+Swift 3 has a native {\tt Decimal} ``value type which offers
+the same functionality as the {\tt NSDecimalNumber} reference
+type, and the two can be used interchangeably in Swift code
+that interacts with Objective-C APIs.''  Literals in integer
+or floating-point form can be used where Decimal literals
+are wanted, but they are first stored as Int or Float and
+then converted to Decimal.
+
+Swift {\tt Decimal}s include a NaN value but not infinities
+or negative zero.
+
+The {\tt NSDecimal} methods {\tt adding}, {\tt subtracting}, {\tt multiplying},
+{\tt dividing}, and {\tt raising} have an optional
+{\tt NSDecimalNumberBehavior} argument, like the corresponding
+Java methods, which specifies a desired scale and rounding
+mode, which can be up, down, in, or nearest out.
+There is also {\tt NSDecimalNumberHandler} which can specify
+what to do if an answer is inexact or overflows.
+In Swift, there are methods {\tt add, +}, {\tt subtract, -},
+{\tt multiply, *}, and {\tt divide, /} without control arguments
+and NSDecimalAdd, NSDecimalSubtract, NSDecimalMultiply,
+and NSDecimalDivide methods with RoundingMode parameter.
+
+[The current state of the documentation for Swift 3 is
+{\bf horrible}.  I'm having serious trouble finding
+{\it anything} about how this all works.]
+
 
 \end{document}
