@@ -481,6 +481,8 @@ arithmetic is supposed to be unsurprising:
 \begin{quote}
 ``Operations on numbers are performed according to the normal
 rules of arithmetic, within implementation-defined limits \dots''
+
+``Numbers are compared with respect to their algebraic value.'' (8.2)
 \end{quote}
 
 Paraphrasing sections 4.4.3 and 6.26,
@@ -553,33 +555,273 @@ the Smalltalk standard defers to ISO 10967 (LIA).  Unfortunately, LIA has,
 by intent and quite explicitly, nothing to say about fixed point
 arithmetic.
 
-The result of this is that different Smalltalk systems do very
-different things with such numbers.  For example, some Smalltalks
-treat them as arbitrary rational numbers, with the scale factor
-controlling only how they are printed, while some treat them as
-IBM-style packed decimal.  For example,
+The result is that implementations use one of four interpretations
+of ScaledDecimal:
+\begin{itemize}
+\item An arbitrary precision integer scaled by a power of 10.
+This agrees well with the standard, which says that
+``Scaled decimal objects provide a precise representation of decimal
+fractions with an explicitly specified number of fractional digits.''.
+\item An integer scaled by a power of 10, represented as a 16-byte
+packed decimal value.  This also agrees well with the standard.
+\item An arbitrary precision rational number that is not in general
+a whole multiple of a power of 10, rounded to a specified number of
+digits when and only when printing.
+\item The same, but with truncation instead of rounding.
+\end{itemize}
+For example,
 \begin{tabbing}
 (2/3) asScaledDecimal: 2 $\Longrightarrow$ 0.66s2\\
 ``and'' 0.66s2 * 3 $\Longrightarrow$ 1.98s2\\
 ``but'' ((2/3) asScaledDecimal: 2) * 3 $\Longrightarrow$ 2.00s2
 \end{tabbing}
-in several Smalltalks using the ``rational number with formatting hint''
-interpretation, while
+in several Smalltalks (several others yield 0.67s2), while
 \begin{tabbing}
 (2/3) asScaledDecimal: 2 $\Longrightarrow$ 0.67s2\\
 0.67s2 * 3 $\Longrightarrow$ 2.01s2\\
 ((2/3) asScaledDecimal: 2) * 3 $\Longrightarrow$ 2.01s2
 \end{tabbing}
-in Smalltalks using the ``$n\times 10^{-s}$'' interpretation.
+in Smalltalks using a scaled-integer interpretation.
 
-\subsection{Java, C$\sharp$, and Swift}
+% Standard: #+ #- #* #/ result scale is at least receiver scale.
+% Majority rule: result scale is max(receiver scale, operand scale).
+% astc: #+ #- => max(r,o); #* => r+o #/ ->
+% astc: x \\ y = x - ((x // y) * y) => #- rule
+%       x rem: y = x - ((x quo: y) * y) => #- rule.
 
-ISO/IEC 23270:2003 defines C$\sharp$ as it was in 2002.
-C$\sharp$ changes faster than ISO processes can keep up with.
-The current specification is C$\sharp$ version 6.0.
+\subsection{C$\sharp$}
 
-Java is an industry standard pushed by Oracle (formerly by Sun);
+Summary: decimal arithmetic is standard in C$\sharp$.
+Such numbers are value types, as in COBOL and PL/I.
+C$\sharp$ does not support sufficient precision or sufficient scale
+to allow unproblematic conversion of COBOL 2002 code or
+data, though it is adequate for COBOL 85.  There is no
+programmer control over rounding.  Scale is part of the
+value, not part of the type, and the rule for division
+makes it hard to track scale at compile time.  Above all,
+decimal arithmetic in C$\sharp$ is exact {\it except when
+it isn't}.  The compiler will not tell you when unexpected
+rounding {\it might} happen, nor does the runtime system
+tell you when it {\it has} happened.
+
+ISO/IEC 23270:2006 defines C$\sharp$ as it was in 2005.
+ISO/IEC 23231:2012 defines the Common Language Infrastructure
+The CLI standard omits the ``Extended numerics library'' (section
+IV.5.7), including System.Decimal, but the language standard
+has much to say.
+
+Section 8.2.1 says
+\begin{quote}
+The {\tt decimal} type is appropriate for calculations in which
+rounding errors caused by floating-point representations are
+unacceptable.
+\end{quote}
+
+Except for rounding errors introduced silently by C$\sharp$ itself.
+
+Section 11.1.7 defines the {\tt decimal} type.
+\begin{quote}
+The {\tt decimal} type is a 128-bit data type suitable for
+financial and monetary calcuations.  The {\tt decimal} type
+can represent values including those in the range $1\times 10^{-28}$
+through $1\times 10^{28}$ with at least 28 significant digits.
+The finite set of values of of type {\tt decimal} are of the
+form $(-1)^s\times c\times 10^{-e}$, where the sign $s$ is 0 or 1,
+the coefficient $c$ is given by $0\le c<Cmax$ and the scale $e$
+is such that $Emin\le e\le Emax$, where $Cmax$ is at least
+$1\times 10^{28}$, $Emin\le 0$, and $Emax\ge 28$.  The decimal
+type does not necessarily support signed zeros, infinities, or
+NaN's.
+
+A {\tt decimal} is represented as an integer scaled by a power of
+ten.  For {\it decimal}s with an absolute value less than {\tt 1.0m},
+the value is exact to at least the 28${}^{th}$ decimal place.
+For {\tt decimal}s with an absolute value greater than or equal to
+{\tt 1.0m}, the value is exact to at least 28 digits.  Contrary
+to the {\tt float} and {\tt double} data types, decimal fractional
+values such as {\tt 0.1} can be represented exactly in the
+{\tt decimal} representation.  In the {\tt float} and {\tt double}
+representations, such numbers often have non-terminating binary
+expansions, making those representations more prone to round-off errors.
+
+The result of an operation on values of type {\it decimal} is that
+which would result from calculating an exact result (preserving
+scale, as defined for each operator) and then rounding to fit the
+representation.  Results are rounded to the nearest representable
+value, and, when a result is equally close to two representable
+values, to the value that has an even number in the least significant
+digit position (this is known as ``banker's rounding'').  That is,
+results are exact to at least the 28${}^{th}$ decimal place.
+Note that rounding may produce a zero value from a non-zero value.
+
+If a {\tt decimal} arithmetic operation produces a result whose magnitude
+is too large for the {\tt decimal format}, a
+{\tt System.OverflowException} is thrown.
+
+The {\tt decimal} type has greater precision but may have a smaller
+range than the floating-point types.  Thus, conversions from the
+floating-point types to {\it decimal} might produce overflow
+exceptions, and conversions from {\tt decimal} to the floating-point
+types might cause loss of precision or overflow exceptions.  For
+these reasons, no implicit conversions exist between the floating-point
+types and {\tt decimal}, and without explicit casts, a compile-time
+error occurs when floating-point and {\tt decimal} operands are
+directly mixed in the same expression.
+\end{quote}
+
+Section 14.7, ``arithmetic operators'', says
+\begin{quote}
+The scale of the result [of a decimal multiplication],
+before any rounding, is the sum of the scales of the two operands.
+
+The scale of the result [of a decimal division],
+before any rounding, is the closest scale to the preferred scale which
+will preserve a result equal to the exact result.  The preferred scale
+is the scale of x less the scale of y.
+
+The scale of the result [of a decimal remainder],
+before any rounding, is the larger of the scales of the two operands,
+and the sign of the result, if non-zero, is the same as that of [the
+first operand].
+
+The scale of the result [of a decimal addition or subtraction],
+before any rounding, is the larger of the scales of the two operands.
+\end{quote}
+
+With the exception of division, the scale rules are familiar and
+sensible. There is no division method that
+takes a desired scale argument, unlike PL/I.
+
+The scale rule for division appears to be intended to
+ensure that scale($(x*y)/y$) = scale($x$), but if we take
+{\tt 1.0m/3.0m} there is {\bf no} scale which ``will preserve a
+result equal to the exact result'', and this is the case for almost
+every possible division.  What you get is the highest supported scale
+that doesn't result in an overflow.
+
+There is no direct way to ask a {\tt decimal} for its scale,
+but two numerically equivalent values can be operationally
+distinguished:
+\begin{tabbing}
+1.0m.ToString() $\Longrightarrow$ "1.0"\\
+1.00m.ToString() $\Longrightarrow$ "1.00"\\
+4.0m/2.0m $\Longrightarrow$ 2\\
+4.00m/2.0m $\Longrightarrow$ 2.0
+\end{tabbing}
+
+The remainder operator is the counterpart of the operation that
+divides two decimal numbers giving an exact integer result.
+There is no such operation.
+
+The {\tt System.Decimal} class has methods {\tt Ceiling},
+{\tt Round}, {\tt Floor}, and {\tt Truncate} which return exact
+integer answers in {\tt decimal} form, no integer
+type is certain to be large enough.  The Round method has
+optional desired-scale and how-to-round-0.5 arguments,
+supporting nearest out and nearest evenr.
+
+% C$\sharp$ changes faster than ISO processes can keep up with.
+% The current specification is C$\sharp$ version 6.0.
+
+\subsection{Java}
+
+Summary: decimal numbers in Java are a reference type,
+{\tt java.math.BigDecimal}, not a primitive type.
+There are no literals for this type nor
+are the usual arithmetic operators available.
+It is not described in the Java Language Specification.
+However, full control over rounding is possible, and
+Java gives exact results unless you ask for rounding.
+It {\it is} possible to convert COBOL 2002 and data to
+Java.  Any finite {\tt float} or {\tt double} value can
+be represented exactly as a {\tt BigDecimal}.
+
+There is no international standard for Java, but there is the
+much-revised Java Language Specification
+[https://docs.oracle.com/javase/specs/jls/se8/html/index.html]
+and the Java Community Process for maintaining Java, which is not
+entirely unlike a standards process.
+
+The version of Java current at the time of writing was 1.8,
+and that edition of the Java Language Specification has nothing to say
+about {\tt BigDecimal}.
+
+The Java API Online Reference
+[https://docs.oracle.com/javase/8/docs/api/overview-summary.html]
+says that
+\begin{quote}
+[{\tt BigDecimal}s are i]mmutable, arbitrary-precision
+signed decimal numbers.  A {\tt BigDecimal} consists of an
+arbitrary precision integer {\it unscaled value} and a 32-bit
+integer {\it scale} [which may be positive, negative, or zero].
+The value represented by [a] {\tt bigDecimal} is therefore
+$(\mbox{unscaledValue} \times 10^{-\mbox{scale}})$.
+
+The {\tt BigDecimal} class gives its user complete control over
+rounding behavior.  If no rounding mode is specified and the exact
+result cannot be represented, an exception is thrown; otherwise,
+calculations can be carried out to a chosen precision and rounding mode
+by supplying an appropriate {\tt MathContext} object to the operation.  In
+either case, eight rounding modes are provided for the control of
+rounding.
+
+When a {\tt MathContext} object is supplied with a precision setting
+0f 0 \dots, arithmetic operations are exact.  \dots In the case of
+divide, the exact quotient could have an infinitely long decimal
+expansion; for example, 1 divided by 3.  If the quotient has a
+nonterminating decimal expansion and the operation is specified to
+return an exact result, an ArithmeticException is thrown.  Otherwise,
+the exact result of the division is returned, as done for other
+operations.
+
+Since the same numerical value can have different representations (with
+different scales), the rules of arithmetic and rounding must specify
+both the numerical result and the scale used in the result's
+representation.
+
+For all arithmetic operators, the operation is carried out as though an
+exact intermediate result were first calculated and then rounded to the
+number of digits specified by the precision setting (if necessary),
+using the selected rounding mode.
+
+Besides a logical exact result, each arithmetic operation has a
+preferred scale for representing a result.
+
+\begin{tabular}{|l|l|}
+\hline
+Operation | Preferred Scale of Result\\
+\hline
+Add | max(addend.scale(), augend.scale())\\
+\hline
+Subtract | max(minuend.scale(), subtrahend.scale())\\
+\hline
+Multiply | multiplier.scale() + multiplicand.scale()\\
+\hline
+Divide | dividend.scale() - divisor.scale()\\
+\hline
+\end{tabular}
+
+\dots an exact divide may have to use a larger scale [when]
+the exact result has more digits.
+
+{\tt BigDecimal}'s {\it natural ordering} is
+{\it inconsistent with equals}.
+\end{quote}
+
+The issue here is that {\tt compareTo} compares the algebraic
+values of two {\tt BigDecimal}s, but {\tt equals} compares
+their representations.
+
+Quotient returning an integer in {\tt BigDecimal} form and
+corresponding remainder are supported.
+
+
+
+\subsection{Swift}
+
+
 Swift is a fast-changing language pushed by Apple.
+At the time of writing the current version was Swift 3.
 
 All three languages have a type for decimal arithmetic.
 In all three it is a strange hybrid between fixed point
