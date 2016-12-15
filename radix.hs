@@ -144,7 +144,7 @@ convertFixed :: Has_Radix t =>
 convertFixed round x = (q, x - fromInteger q)
   where q = convert round (toRational x)
 
-quotient :: Has_Radix t => 
+quotient :: Has_Radix t =>
     Rounding_Mode -> Fixed_Point t -> Fixed_Point t ->
     (Integer, Fixed_Point t)
 quotient round x y = (q, x - fromInteger q * y)
@@ -200,31 +200,31 @@ instance (Has_Radix t) => Show (Fixed_Point t)
                     show_fract d f = shows h (show_fract (d-1) l)
                       where (h,l) = quotRem (10 * f) p
 
-readFixed :: String -> [(Fixed_Point Decimal,String)]
-readFixed ('-':cs) = after_sign negate cs    
-readFixed cs       = after_sign id     cs  
+readDecimalFixed :: String -> [(Fixed_Point Decimal,String)]
+readDecimalFixed ('-':cs) = after_sign negate cs
+readDecimalFixed cs       = after_sign id     cs
 
-after_sign f (c:cs) 
-  | isDigit c = after_digit f (add_digit 0 c) cs 
+after_sign f (c:cs)
+  | isDigit c = after_digit f (add_digit 0 c) cs
 after_sign _ _ = []
 
 after_digit f n (c:cs)
-  | isDigit c = after_digit f (add_digit n c) cs     
+  | isDigit c = after_digit f (add_digit n c) cs
 after_digit f n ('.':c:cs)
-  | isDigit c = after_dot f 1 (add_digit n c) cs                 
+  | isDigit c = after_dot f 1 (add_digit n c) cs
 after_digit f n ('.':_) = []
 after_digit f n cs = [(FP (f n) 0, cs)]
-  
+
 after_dot f s n (c:cs)
-  | isDigit c = after_dot f (s+1) (add_digit n c) cs                
+  | isDigit c = after_dot f (s+1) (add_digit n c) cs
 after_dot f s n cs = [(FP (f n) s, cs)]
-  
+
 add_digit :: Integer -> Char -> Integer
 
 add_digit n c =
-   n * 10 + fromIntegral (fromEnum c - fromEnum '0') 
+   n * 10 + fromIntegral (fromEnum c - fromEnum '0')
 
 instance Read (Fixed_Point Decimal)
   where
-    readsPrec _ = readFixed
+    readsPrec _ = readDecimalFixed
 

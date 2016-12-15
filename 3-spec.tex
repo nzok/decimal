@@ -13,10 +13,10 @@
                {>}{{$>$}}1 {<}{{$<$}}1 {\\}{{$\lambda$}}1
                {\\\\}{{\char`\\\char`\\}}1
                {->}{{$\rightarrow$}}2 {>=}{{$\geq$}}2 {<-}{{$\leftarrow$}}2
-               {<=}{{$\leq$}}2 {=>}{{$\Rightarrow$}}2 
+               {<=}{{$\leq$}}2 {=>}{{$\Rightarrow$}}2
                {\ .}{{$\circ$}}2 {\ .\ }{{$\circ$}}2
                {>>}{{>>}}2 {>>=}{{>>=}}2
-               {|}{{$\mid$}}1               
+               {|}{{$\mid$}}1
     }
 \begin{document}
 
@@ -70,13 +70,13 @@ the base is not stored.  We can also provide the LIA function
 {\it ulp} (unit in last place).
 
 \begin{code}
-scale :: forall t . Has_Radix t => FixedPoint t -> Integer
+scale :: forall t . Has_Radix t => Fixed_Point t -> Integer
 scale (FP _ s) = s
 
-base :: forall t . Has_Radix t => FixedPoint t -> Integer
+base :: forall t . Has_Radix t => Fixed_Point t -> Integer
 base _ = radix (undefined :: t)
 
-ulp :: Has_Radix t => FixedPoint t -> FixedPoint t
+ulp :: Has_Radix t => Fixed_Point t -> Fixed_Point t
 ulp (FP _ s) = FP 1 s
 \end{code}
 
@@ -341,7 +341,7 @@ the LIA-2 {\it quot}, {\it mod}, {\it ratio}, {\it residue},
 {\it group}, and {\it pad} functions.
 
 \begin{code}
-quotient :: Has_Radix t => 
+quotient :: Has_Radix t =>
     Rounding_Mode -> Fixed_Point t -> Fixed_Point t ->
     (Integer, Fixed_Point t)
 quotient round x y = (q, x - fromInteger q * y)
@@ -437,7 +437,7 @@ divide (Fixed_Frame rs round bounds) x y
           (Maximum_Scale z) -> z
     p = radix (undefined :: t) ^ s
     q = toRational x / toRational y
-    m = convert round (q * fromInteger p) 
+    m = convert round (q * fromInteger p)
 \end{code}
 
 The same problem arises when trying to define a square root
@@ -458,29 +458,31 @@ this case there is either one way or none.
 
 \begin{code}
 readDecimalFixed :: String -> [(Fixed_Point Decimal,String)]
-readDecimalFixed ('-':cs) = after_sign negate cs    
-readDecimalFixed cs       = after_sign id     cs  
+readDecimalFixed ('-':cs) = after_sign negate cs
+readDecimalFixed cs       = after_sign id     cs
 
-after_sign f (c:cs) 
-  | isDigit c = after_digit f (add_digit 0 c) cs 
+after_sign f (c:cs)
+  | isDigit c = after_digit f (add_digit 0 c) cs
 after_sign _ _ = []
 
 after_digit f n (c:cs)
-  | isDigit c = after_digit f (add_digit n c) cs     
+  | isDigit c = after_digit f (add_digit n c) cs
 after_digit f n ('.':c:cs)
-  | isDigit c = after_dot f 1 (add_digit n c) cs                 
+  | isDigit c = after_dot f 1 (add_digit n c) cs
 after_digit f n ('.':_) = []
 after_digit f n cs = [(FP (f n) 0, cs)]
-  
+
 after_dot f s n (c:cs)
-  | isDigit c = after_dot f (s+1) (add_digit n c) cs                
+  | isDigit c = after_dot f (s+1) (add_digit n c) cs
 after_dot f s n cs = [(FP (f n) s, cs)]
-  
+
 add_digit :: Integer -> Char -> Integer
 
 add_digit n c =
-   n * 10 + fromIntegral (fromEnum c - fromEnum '0') 
+   n * 10 + fromIntegral (fromEnum c - fromEnum '0')
 \end{code}
+%ERROR: add_digit had - fromEnum c
+%ERROR: after_dot had n and s swapped.
 
 However, \verb|"0.1"| has no exact representation as a
 Fixed\_Point Binary, nor is the natural scale what a
