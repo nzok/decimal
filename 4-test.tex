@@ -1,0 +1,52 @@
+\documentclass{article}
+\usepackage{listings}
+\lstloadlanguages{Haskell}
+\lstnewenvironment{code}
+    {\lstset{}%
+      \csname lst@SetFirstLabel\endcsname}
+    {\csname lst@SaveFirstLabel\endcsname}
+    \lstset{
+      basicstyle=\small\ttfamily,
+      flexiblecolumns=false,
+      basewidth={0.5em,0.45em},
+      literate={+}{{$+$}}1 {/}{{$/$}}1 {*}{{$*$}}1 {=}{{$=$}}1
+               {>}{{$>$}}1 {<}{{$<$}}1 {\\}{{$\lambda$}}1
+               {\\\\}{{\char`\\\char`\\}}1
+               {->}{{$\rightarrow$}}2 {>=}{{$\geq$}}2 {<-}{{$\leftarrow$}}2
+               {<=}{{$\leq$}}2 {=>}{{$\Rightarrow$}}2
+               {\ .}{{$\circ$}}2 {\ .\ }{{$\circ$}}2
+               {>>}{{>>}}2 {>>=}{{>>=}}2
+               {|}{{$\mid$}}1
+    }
+\begin{document}
+
+\section{Testing}
+
+The previous section showed that a rigorous definition
+of fixed-point arithmetic suitable for use in writing
+standards can be written.  That is not surprising.  The
+claim of this paper is that machine-checkable specifications
+{\it should} be written for appropriate aspects of standards,
+because machine checking is {\it needed}.
+
+We can classify errors in a specification as
+\begin{itemize}
+\item {\it Syntax} errors, such as incorrect punctuation,
+easily caught by a parser.  Reducing these calls for a
+notation that has a checkable grammar.
+\item {\it Type} errors, such as calling the wrong function,
+or providing the wrong number of arguments, or swapping two
+arguments, caught by a more or less capable type checker.
+Reducing these calls for a notation that has a statically
+checkable type system.
+\item Other {\it Semantic} errors, such as swapping two
+arguments of the same type, or sign errors.
+Reducing these requires a notation that can be executed
+in order to run tests, and ideally a testing framework
+that makes it easy to write tests.
+\end{itemize}
+
+The specification in the previous section is small, but
+during its development there were numerous errors of each kind.
+
+\end{document}
