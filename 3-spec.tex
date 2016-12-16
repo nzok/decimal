@@ -30,11 +30,13 @@ code in the programming language Haskell [ref].
 
 One specification covers both binary and decimal fixed point
 arithmetic.  The base is part of the type of a fixed point number.
-We need a popular extension to Haskell 2010, and we're going to
-need a helper function for converting to text.  For conversion
-from text, we need to recognise digits.
+The LANGUAGE pragmas enable lanuage features added since the
+Haskell 2010 report.  The import declarations make the (named)
+functions available, these will be used in text$\leftrightarrow$number
+conversion.
 \begin{code}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 import Numeric (showSigned)
 import Data.Char (isDigit)
 \end{code}
@@ -55,37 +57,66 @@ instance Has_Radix Decimal
   where radix _ = 10
 \end{code}
 
-Fixed\_Point $t$ is a ``phantom type'', so called because it
-contains no run-time value of type $t$.  The values it does
-contain are an integer $m$ and a scale $s$ so that it represents
+A fixed point number representation contains two unbounded integers.
+To avoid confusing them, we give scales a different type.  The
+Scale $t$ type has exactly the same representation as the Integer type;
+it has the same integer literals; and it has (some of) the same
+operations.  But it is a different type, which helps us avoid errors.
+It is a ``phantom type'', so called because it
+contains no run-time value of type $t$.  The ScopeTypeVariables
+feature means that the type variable $t$ is available in the body
+of the `shift' function, so that we can extract the radix without
+storing it anywhere.  The `shift' function shifts a number left or
+right by some number of digits; it is exactly what a shift instruction
+would do on a binary or decimal sign-and-magnitude machine.
+
+\begin{code}
+newtype Scale t = Scale Integer
+                  deriving (Eq, Ord, Show, Num)
+
+shift :: forall t . Has_Radix t => Integer -> Scale t -> Integer
+shift m (Scale p) =
+  if p >= 0 then m * radix (undefined :: t) ^ p
+  else m `quot` radix (undefined :: t) ^ negate p
+\end{quote}
+% ERROR: shift was not defined for negative p.
+
+A Fixed $t$ contains an integer $m$ and a scale $s$ so that it represents
 the value $m\times r^s$ where $r$ is the radix determined by $t$.
 These integers are unbounded; we are dealing with exact arithmetic
 at this point.
 \begin{code}
-data Fixed_Point t = FP !Integer !Integer
+data Fixed t = FP !Integer !(Scale t)
 \end{code}
+
+For testing we want to be able to create an integral Fixed $t$
+value with a given scale.
+
+\begin{code}
+toFixed :: Has_Radix t => Integer -> Scale t -> Fixed t
+toFixed n s = FP (shift n s) s
+\end{code}
+
+The :: line for the toFixed function says ``for any type $t$,
+provided that $t$ belongs to the Has\_Radix class (that is,
+`radix' is defined on it), toFixed a function with an
+Integer argument and a Scale t argument that delivers a Fixed t
+result.
 
 From an FP value we can extract its scale and base, even though
 the base is not stored.  We can also provide the LIA function
 {\it ulp} (unit in last place).
 
 \begin{code}
-scale :: forall t . Has_Radix t => Fixed_Point t -> Integer
+scale :: forall t . Has_Radix t => Fixed t -> Integer
 scale (FP _ s) = s
 
-base :: forall t . Has_Radix t => Fixed_Point t -> Integer
+base :: forall t . Has_Radix t => Fixed t -> Integer
 base _ = radix (undefined :: t)
 
-ulp :: Has_Radix t => Fixed_Point t -> Fixed_Point t
+ulp :: Has_Radix t => Fixed t -> Fixed t
 ulp (FP _ s) = FP 1 s
 \end{code}
-
-The :: line for the scale function says ``for any type $t$,
-provided that $t$ belongs to the Has\_Radix class (that is,
-`radix' is defined on it), scale is a function with a
-Fixed\_Point argument that delivers an Integer result.
-The ScopedTypeVariables feature allows us to mention $t$ in
-the body of the base function.
 
 \subsection{Comparison}
 
@@ -110,51 +141,53 @@ for addition and subtraction.
 
 \begin{code}
 align :: forall t a . Has_Radix t =>
-    Fixed_Point t -> Fixed_Point t -> (Integer -> Integer -> a) -> a
+    Fixed t -> Fixed t -> (Integer -> Integer -> a) -> a
 
 align (FP m1 s1) (FP m2 s2) f
-  | s1 > s2 = f m1 (m2 * r ^ (s1-s2))
-  | s1 < s2 = f (m1 * r ^ (s2-s1)) m2
+  | s1 > s2 = f m1 (shift m2 (s1-s2))
+  | s1 < s2 = f (shift m1 (s2-s1)) m2
   | True    = f m1 m2
-  where r = radix (undefined :: t)
 \end{code}
 
 This takes two fixed-point numbers in the same base, aligns them,
 and passes the aligned values to a function of integers.
 
-By plugging Fixed\_Point into Haskell's Eq type class and
-defining \verb|==|, we get \verb|/=| for free.  This provides
+By plugging Fixed into Haskell's Eq type class and
+defining \verb|==|, we get \verb|/=| for free, correct by
+construction (if \verb|==| is).  This provides
 the LIA operations {\it eq} and {\it neq}.
 
 \begin{code}
-instance (Has_Radix t) => Eq (Fixed_Point t)
+instance (Has_Radix t) => Eq (Fixed t)
   where x1 == x2 = align x1 x2 (==)
 \end{code}
 
-By plugging Fixed\_Point into Haskell's Ord type-class and
+By plugging Fixed into Haskell's Ord type-class and
 defining three-way comparison, we get $<$, $\le$, $>$, $>=$,
-max, and min for free.  This provides the LIA-1 operations {\it lss},
+max, and min for free, correct by construction.
+This provides the LIA-1 operations {\it lss},
 {\it leq}, {\it gtr}, and {\it geq} and the LIA-2 operations
 {\it max} and {\it min}, and since `maximum' and `minimum' are
 predefined folds derived from `max' and `min', the LIA-2
 operations {\it max\_seq} and {\it min\_seq}.
 
 \begin{code}
-instance (Has_Radix t) => Ord (Fixed_Point t)
+instance (Has_Radix t) => Ord (Fixed t)
   where compare x1 x2 = align x1 x2 compare
 \end{code}
 
 This is all we need to extend LIA-2's divisibility test to
 fixed-point numbers:
 \begin{code}
-lia_divides :: Has_Radix t => Fixed_Point t -> Fixed_Point t -> Bool
+lia_divides :: Has_Radix t => Fixed t -> Fixed t -> Bool
 lia_divides x y = align x y (\m n -> m /= 0 && n`rem`m == 0)
 \end{code}
 
 % We can even define
-% lia_gcd :: Has_Radix t => Fixed_Point t -> Fixed_Point t -> Fixed_Point t
+% lia_gcd :: Has_Radix t => Fixed t -> Fixed t -> Fixed t
 % lia_gcd x y = FP (align x y gcd) (scale x`max`scale y)
-
+% lia_lcm :: Has_Radix t => Fixed t -> Fixed t -> Fixed t
+% lia_lcm x y = FP (align x y lcm) (scale x `max` scale y)
 
 \subsection{Converting numbers to text}
 
@@ -171,16 +204,14 @@ Plugging into Haskell's Show type-class takes care of
 inserting a negative sign (and if the context demands it,
 enclosing parentheses), and avoiding excess concatenation.
 
-?LIA
-
 \begin{code}
-instance (Has_Radix t) => Show (Fixed_Point t)
+instance (Has_Radix t) => Show (Fixed t)
   where
     showsPrec p x = showSigned showPos p x
       where showPos x@(FP m s) rest =
-              if s <= 0 then shows (m * base x^negate s) rest
+              if s <= 0 then shows (shift m (negate s)) rest
               else shows i ('.' : show_fract s r)
-              where p = base x ^ s
+              where p = shift 1 s
                     (i,r) = quotRem m p
                     show_fract 0 _ = rest
                     show_fract d f = shows h (show_fract (d-1) l)
@@ -188,7 +219,7 @@ instance (Has_Radix t) => Show (Fixed_Point t)
 \end{code}
 
 Converting from text to numbers runs into the problem that
-0.1 has no finite representation as a Fixed\_Point Binary.
+0.1 has no finite representation as a Fixed Binary.
 We'll deal with that after considering rounding.
 
 \subsection{Ring arithmetic}
@@ -200,11 +231,13 @@ We can convert a fixed-point number to an exact Rational number and
 those \emph{are} a field.  None of the ring operations can fail.
 This provides the LIA operations {\it add}, {\it sub}, {\it mul},
 {\it neg}, {\it abs}, and {\it sign}.  The 2012 revision of LIA-1
-defines {\it signum} instead of {\it sign}.  The LIA-2 {\it dim}
+defines {\it signum} instead of {\it sign}.  One possible confusion
+is that LIA's {\it sign} is Haskell's {\it signum}; testing is
+advisible to catch mistakes there.  The LIA-2 {\it dim}
 function can also be defined for any ordered numeric type.
 
 \begin{code}
-instance (Has_Radix t) => Num (Fixed_Point t)
+instance (Has_Radix t) => Num (Fixed t)
   where
     x + y = FP (align x y (+)) (scale x `max` scale y)
     x - y = FP (align x y (-)) (scale x `max` scale y)
@@ -220,10 +253,14 @@ lia_signum x = if x < 0 then -1 else 1
 lia_dim :: (Ord t, Num t) => t -> t -> t
 lia_dim x y = if x < y then fromInteger 0 else x - y
 
-instance (Has_Radix t) => Real (Fixed_Point t)
+instance (Has_Radix t) => Real (Fixed t)
   where
-    toRational x@(FP m s) = toRational m / toRational (base x) ^ s
+    toRational (FP m s) =
+      if s >= 0 then m % (shift 1 s)
+      else (shift m (negate s)) % 1
 \end{code}
+% ERROR: the else part was missing here.
+The \% operator divides two integers to make a rational number.
 
 Since raising to a non-negative power requires only the unit
 (fromInteger 1) and multiplication, we get the power operation
@@ -231,7 +268,7 @@ $x$\verb|^|$n$ free.  This operation fails if $n<0$, aligning
 it with the LIA-2 {\it power${}_I$} function, but without the
 breakage of making $0^0$ an error.  For example,
 \begin{verbatim}
-> (1234 2 :: Fixed_Point Decimal) ^ 4
+> (1234 2 :: Fixed Decimal) ^ 4
 23187.85835536
 \end{verbatim}
 
@@ -266,7 +303,6 @@ data Rounding_Mode
    | Out
    | Exact
    | Even
-   | Odd
    | Nearest Rounding_Mode
 \end{code}
 
@@ -292,8 +328,9 @@ convert round x =
     In        -> i
     Out       -> i + d
     Exact     -> if d == 0 then i else error "inexact"
-    Even      -> if even i then i else i + d
-    Odd       -> if odd  i then i else i + d
+    Even      -> if even i then i else
+                 if d /= 0 then i + d else
+                 if (i + 1 `mod` 4) == 0 then i+1 else i-1
     Nearest h -> if d == 0 then i else
                  case compare (2*abs f) 1 of
                    LT -> i
@@ -303,7 +340,7 @@ convert round x =
         d     = if f < 0 then -1 else if f > 0 then 1 else 0
 \end{code}
 
-We can't plug Fixed\_Point into RealFrac that because numeric types
+We can't plug Fixed into RealFrac that because numeric types
 in Haskell can only belong to RealFrac if they also belong to
 Fractional, which requires them to have division, reciprocal,
 and conversion from arbitrary rationals.
@@ -318,7 +355,7 @@ being like  the LIA functions {\it round} and {\it trunc}.
 
 \begin{code}
 rescale :: forall t r . (Has_Radix t, Real r) =>
-          Rounding_Mode -> Integer -> r -> Fixed_Point t
+          Rounding_Mode -> Integer -> r -> Fixed t
 
 rescale round digits x = FP (convert round y) digits
   where y = toRational x * toRational (radix (undefined :: t) ^ digits)
@@ -329,11 +366,13 @@ LIA (floating-point) operations {\it intpart}, and {\it fractpart}.
 
 \begin{code}
 convertFixed :: Has_Radix t =>
-    Rounding_Mode -> Fixed_Point t -> (Integer, Fixed_Point t)
+    Rounding_Mode -> Fixed t -> (Integer, Fixed t)
 
 convertFixed round x = (q, x - fromInteger q)
   where q = convert round (toRational x)
 \end{code}
+% ERROR: if the argument is already an (odd, even) integer,
+% it's returned unchanged instead of rounding to (even, odd).
 
 Given this operation, we can define division with an
 integer quotient and fixed-point remainder, supporting
@@ -342,8 +381,8 @@ the LIA-2 {\it quot}, {\it mod}, {\it ratio}, {\it residue},
 
 \begin{code}
 quotient :: Has_Radix t =>
-    Rounding_Mode -> Fixed_Point t -> Fixed_Point t ->
-    (Integer, Fixed_Point t)
+    Rounding_Mode -> Fixed t -> Fixed t ->
+    (Integer, Fixed t)
 quotient round x y = (q, x - fromInteger q * y)
   where q = convert round (toRational x / toRational y)
 \end{code}
@@ -383,7 +422,7 @@ data Fixed_Frame t
                  !Maybe (Integer, Integer)
 
 fit :: Has_Radix t =>
-       Fixed_Frame t -> Fixed_Point t -> Fixed_Point t
+       Fixed_Frame t -> Fixed t -> Fixed t
 
 fit (Fixed_Frame rs round bounds) x@(FP m s)
   = check_bounds bounds m' y
@@ -428,7 +467,7 @@ The best that can be one is to specify division given a frame.
 
 \begin{code}
 divide :: forall t u v . (Has_Radix t, Real u, Real v) =>
-          Fixed_Frame t -> u -> v -> Fixed_Point t
+          Fixed_Frame t -> u -> v -> Fixed t
 divide (Fixed_Frame rs round bounds) x y
   = check_bounds bounds m (FP m s)
   where
@@ -447,7 +486,7 @@ same solution, of requiring an explicit frame.  LIA-2 extends
 
 \subsection{Converting from text to number}
 
-Specifying conversion for Fixed\_Point Decimal numbers
+Specifying conversion for Fixed Decimal numbers
 with their natural scale is tedious rather than difficult.
 The code that follows is a finite state automaton that
 accumulates an integer and counts digits after the decimal point.
@@ -457,7 +496,7 @@ pair for each legal way to parse a prefix of the string.  In
 this case there is either one way or none.
 
 \begin{code}
-readDecimalFixed :: String -> [(Fixed_Point Decimal,String)]
+readDecimalFixed :: String -> [(Fixed Decimal,String)]
 readDecimalFixed ('-':cs) = after_sign negate cs
 readDecimalFixed cs       = after_sign id     cs
 
@@ -485,14 +524,14 @@ add_digit n c =
 %ERROR: after_dot had n and s swapped.
 
 However, \verb|"0.1"| has no exact representation as a
-Fixed\_Point Binary, nor is the natural scale what a
+Fixed Binary, nor is the natural scale what a
 program necessarily needs.  What is needed is precisely
 a Fixed\_Frame.
 
 \begin{code}
 readFixed :: Has_Radix t =>
              Fixed\_Frame t -> String ->
-             [(Fixed_Point t, String)]
+             [(Fixed t, String)]
 
 readFixed frame cs =
    [ (fix frame num,rest) | (num,read) <- readDecimalFixed cs ]

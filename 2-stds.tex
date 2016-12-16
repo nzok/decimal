@@ -25,9 +25,9 @@ down  & $\lfloor x \rfloor$             & floor\\
 up    & $\lceil x \rceil = -\lfloor -x \rfloor$ & ceiling\\
 in    & $\sigma(x)\times\lfloor|x|\rfloor$ & truncate\\
 out   & $\sigma(x)\times\lfloor|x|+\frac12\rfloor$ & away from zero\\
-evenr & $\mbox{even}(\lfloor x\rfloor) \ifso \lfloor x \rfloor
+even  & $\mbox{even}(\lfloor x\rfloor) \ifso \lfloor x \rfloor
         : \lceil x \rceil$ & round to even\\
-oddr  & $\mbox{even}(\lfloor x\rfloor) \ifso \lceil x \rceil
+odd   & $\mbox{even}(\lfloor x\rfloor) \ifso \lceil x \rceil
         : \lfloor x \rfloor$ & round to odd (not used in practice)
 \end{tabular}
 
@@ -39,7 +39,16 @@ $ d = x - \lfloor x \rfloor $
 
 This higher-order function can be combined with the seven conversions
 above to make seven ``round to nearest'' modes such as nearest out
-(banker's rounding) or nearest evenr (IEEE rounding).
+(banker's rounding) or nearest even (IEEE rounding).
+
+The claim of this paper is that executable specifications are important
+to find and correct mistakes.  Did you notice the mistake(s) above?
+Neither did two pre-publication readers.  The problem is that rounding
+$x$ to an even (odd) integer is not well defined when $x$ is an odd (even)
+integer.  This issue was discovered by testing.  The solution for even
+is simple: if $x$ is exactly equal to an odd integer, round it to the
+nearest multiple of 4.  There is no sensible way to round 0 to an odd
+integer, so we strike odd rounding from the list.
 
 \section{Existing standards}
 
@@ -129,7 +138,7 @@ D^* &=& \{n/(r_D^{d_D}) | n \in {\cal Z}\}\\
 D &=& D^* \mbox{if unbounded}\\
 D &=& D^* \cap [-dmax_D,dmax_D] \mbox{if bounded}
 \end{eqnarray*}
-Three rounding functions {\it nearest}\subD{} (our nearest evenr),
+Three rounding functions {\it nearest}\subD{} (our nearest even),
 {\it up}\subD{} (ceiling), and
 {\it down}\subD{} (floor), all ${\cal R} \rightarrow D^*$, are
 defined.  Conversion from floating point to fixed point and
@@ -211,7 +220,7 @@ does), and even fewer support decimal floating-point natively
 (recent IBM z/Series and POWER machines do).
 
 IEEE 754 originally defined four rounding modes, up, down, in,
-and nearest evenr in our terminology.  The current standard
+and nearest even in our terminology.  The current standard
 adds nearest out (banker's rounding).
 
 \subsection{COBOL}
@@ -718,7 +727,7 @@ The {\tt System.Decimal} class has methods {\tt Ceiling},
 integer answers in {\tt decimal} form, no integer
 type is certain to be large enough.  The Round method has
 optional desired-scale and how-to-round-0.5 arguments,
-supporting nearest out and nearest evenr.
+supporting nearest out and nearest even.
 
 % C$\sharp$ changes faster than ISO processes can keep up with.
 % The current specification is C$\sharp$ version 6.0.

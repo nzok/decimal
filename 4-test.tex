@@ -39,14 +39,26 @@ or providing the wrong number of arguments, or swapping two
 arguments, caught by a more or less capable type checker.
 Reducing these calls for a notation that has a statically
 checkable type system.
-\item Other {\it Semantic} errors, such as swapping two
-arguments of the same type, or sign errors.
+\item {\it Avoidable} semantic errors, such as swapping
+two arguments of the same type, which can be turned into
+type errors by better use of the type system.  For
+example, Scale was introduced to make numeric values and
+scales into different types.
+\item Other {\it Semantic} errors, such as swapping the
+arguments of subtraction (which must be of the same type,
+so the error cannot be avoided), or sign errors.
 Reducing these requires a notation that can be executed
 in order to run tests, and ideally a testing framework
 that makes it easy to write tests.
 \end{itemize}
 
-The specification in the previous section is small, but
-during its development there were numerous errors of each kind.
+The tests for the `convert' function reported errors in
+the Down and Up rounding modes, which were errors in the
+test code, and errors in the Even and Odd rounding modes.
+The error there was that if the argument was already an
+(odd, even) integer, it was returned instead of an
+(even, odd) result.  This revealed that the informal
+specification of the Even and Odd rounding modes was
+ambiguous.
 
 \end{document}
