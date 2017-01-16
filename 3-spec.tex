@@ -78,7 +78,7 @@ shift :: forall t . Has_Radix t => Integer -> Scale t -> Integer
 shift m (Scale p) =
   if p >= 0 then m * radix (undefined :: t) ^ p
   else m `quot` radix (undefined :: t) ^ negate p
-\end{quote}
+\end{code}
 % ERROR: shift was not defined for negative p.
 
 A Fixed $t$ contains an integer $m$ and a scale $s$ so that it represents
